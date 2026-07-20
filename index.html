@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Honest Notes</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Honest Notes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1a1a1a">
+    <style>
+        /* CSS Variables */
+        :root {
+            --bg-color: #ffffff; --text-color: #333333;
+            --toolbar-bg: #f5f5f5; --toolbar-border: #dddddd;
+            --card-bg: #ffffff; --card-border: #e0e0e0; --card-hover: #f0f0f0;
+            --primary-btn: #0060df; --primary-hover: #003eaa;
+            --modal-bg: rgba(0,0,0,0.5); --modal-content: #ffffff;
+        }
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a; --text-color: #f1f1f1;
+            --toolbar-bg: #2d2d2d; --toolbar-border: #444444;
+            --card-bg: #2a2a2a; --card-border: #444444; --card-hover: #3a3a3a;
+            --primary-btn: #45a1ff; --primary-hover: #1e88e5;
+            --modal-bg: rgba(0,0,0,0.7); --modal-content: #2a2a2a;
+        }
+
+        /* Base & Print Blocking */
+        body, html {
+            margin: 0; padding: 0; height: 100%;
+            background-color: var(--bg-color); color: var(--text-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden; transition: 0.3s;
+        }
+        @media print {
+            body * { display: none !important; }
+            body::before {
+                content: "Printing is disabled."; display: block !important;
+                text-align: center; padding: 50px; font-size: 24px; color: black;
+            }
+        }
+
+        /* UI Components */
+        button {
+            background-color: #5f6368; color: #fff; border: none;
+            padding: 8px 14px; font-size: 14px; border-radius: 4px; cursor: pointer; transition: 0.2s;
+        }
+        button:hover { background-color: #73777b; }
+        .btn-primary { background-color: var(--primary-btn); font-weight: bold; }
+        .btn-primary:hover { background-color: var(--primary-hover); }
+
+        .icon-btn {
+            width: 32px; height: 32px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0; font-size: 14px; line-height: 1;
+            border: none; outline: none;
+        }
+
+        .toolbar {
+            position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+            z-index: 50;
+            background: linear-gradient(135deg, #0b112c 0%, #1a2a6c 40%, #11998e 70%, #38ef7d 100%);
+            background-size: 200% 200%;
+            animation: aurora 10s ease infinite;
+            border-radius: 999px;
+            display: flex; align-items: center; padding: 6px; gap: 6px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+            width: fit-content; height: fit-content;
+        }
+        @keyframes aurora {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        .toolbar .spacer { display: none; }
+        .toolbar strong { display: none; }
+
+        .toolbar button {
+            background: rgba(255, 255, 255, 0.15) !important;
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.3) !important;
+            color: #fff !important; text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+            padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; transition: 0.2s;
+            border-radius: 6px !important;
+            box-sizing: border-box; height: 36px;
+        }
+        .toolbar button:hover { background: rgba(255, 255, 255, 0.3) !important; }
+
+        .toolbar #btn-theme {
+            border-radius: 999px 6px 6px 999px !important;
+            width: 36px; padding: 0;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #library-tools { display: flex; align-items: center; gap: 6px; }
+        #library-tools #btn-import {
+            border-radius: 6px 999px 999px 6px !important;
+            padding-right: 20px;
+        }
+
+        body.viewer-active .toolbar { display: none; }
+        .back-circle-btn {
+            width: 36px; height: 36px; border-radius: 50%;
+            background-color: #1a1a1a; border: 1px solid #333;
+            color: #fff; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; position: fixed; top: 16px; left: 16px; z-index: 100;
+        }
+        .back-circle-btn svg { width: 20px; height: 20px; stroke-width: 1.5; }
+        .back-circle-btn:hover { background-color: #333; }
+
+        /* Screens */
+        .screen { display: none; height: 100%; overflow: auto; }
+        .screen.active { display: block; }
+
+        /* Library View */
+        #library-container { padding: 76px 20px 20px 20px; }
+        .library-controls { display: flex; gap: 10px; margin-bottom: 20px; align-items: center;}
+        .grid-view { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px; }
+        .list-view { display: flex; flex-direction: column; gap: 10px; }
+        .item-card {
+            background-color: var(--card-bg); border: 1px solid var(--card-border);
+            border-radius: 8px; padding: 16px; cursor: pointer; text-align: center;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            position: relative; overflow: visible;
+        }
+        .item-card.folder-card {
+            background: transparent; border: none; padding: 8px;
+            justify-content: flex-start;
+        }
+        .item-card:hover { background-color: var(--card-hover); }
+        .item-card.folder-card:hover { background-color: transparent; opacity: 0.85; }
+        .list-view .item-card { flex-direction: row; justify-content: flex-start; gap: 16px; padding: 12px 16px; }
+
+        .item-card.drag-over {
+            outline: 2px dashed var(--primary-btn); outline-offset: 2px;
+            background-color: var(--card-hover);
+        }
+        .item-card.selected {
+            outline: 2px solid var(--primary-btn); outline-offset: 2px;
+        }
+        .item-card[draggable="true"] { cursor: grab; }
+
+        .folder-svg-wrapper {
+            width: 100%; position: relative;
+        }
+        .folder-svg-wrapper svg { width: 100%; height: auto; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.15)); }
+        .tree-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #333;
+        }
+        .tree-item:hover { background: #333; }
+        .tree-item-left { display: flex; align-items: center; gap: 12px; }
+        .tree-item-icon { width: 24px; height: 24px; }
+        .tree-item-icon svg { width: 100%; height: 100%; }
+        .tree-item-title { font-size: 16px; }
+        .tree-item.selected .tree-item-title { color: #d4a748; }
+        .tree-item-arrow { color: #888; font-size: 14px; }
+        .folder-info {
+            width: 100%; margin-top: 12px; display: flex; flex-direction: column; gap: 4px;
+        }
+        .folder-title-row {
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+        }
+        .folder-meta {
+            display: flex; justify-content: center; gap: 12px; font-size: 11px; color: #888;
+        }
+        .item-title { font-size: 14px; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+        .card-menu-btn {
+            background: #2a2a2a; border: none; border-radius: 50%; color: #d4a748;
+            width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+            padding: 0; cursor: pointer; position: relative; flex-shrink: 0;
+        }
+        .file-card .card-menu-btn {
+            position: absolute; top: 6px; right: 6px; z-index: 5;
+            width: 26px; height: 26px; background-color: rgba(0,0,0,0.4); color: white;
+        }
+        .list-view .file-card .card-menu-btn { position: static; margin-left: auto; }
+
+        .context-menu {
+            position: absolute; top: 100%; margin-top: 10px; left: 50%; transform: translateX(-50%);
+            background: #1e1e1e; border: 1px solid #333;
+            border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            min-width: 160px; z-index: 60; overflow: visible; color: #fff;
+        }
+        .context-menu::before {
+            content: ''; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+            border-width: 6px; border-style: solid;
+            border-color: transparent transparent #1e1e1e transparent;
+        }
+        .context-menu-item {
+            padding: 12px 16px; font-size: 15px; cursor: pointer; display: flex; align-items: center; gap: 12px;
+        }
+        .context-menu-item:hover { background-color: #2a2a2a; border-radius: 12px; }
+        .context-menu-item.danger { color: #ff5252; }
+        .context-menu-item svg { width: 18px; height: 18px; opacity: 0.8; }
+
+        .color-swatch-row { display: flex; gap: 8px; padding: 10px 14px; flex-wrap: wrap; }
+        .color-swatch {
+            width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+            border: 2px solid transparent;
+        }
+        .color-swatch.selected { border-color: var(--text-color); }
+
+        .file-thumb {
+            width: 100%; height: 90px; border-radius: 8px; overflow: hidden;
+            margin-bottom: 8px; background: #fff; position: relative;
+            border: 1px solid var(--card-border);
+        }
+        .file-thumb iframe {
+            width: 400%; height: 400%; transform: scale(0.25); transform-origin: top left;
+            border: none; pointer-events: none;
+        }
+        .list-view .file-thumb { width: 40px; height: 40px; margin-bottom: 0; flex-shrink: 0; }
+        .list-view .file-thumb iframe { width: 160%; height: 160%; transform: scale(0.25); }
+
+        /* Viewer View */
+        #screen-viewer { padding-top: 0; box-sizing: border-box; background-color: var(--bg-color); }
+        #viewer-iframe { width: 100%; height: 100%; border: none; background: var(--bg-color); }
+
+        /* Rejection View */
+        #rejection-view {
+            display: none; height: 100%; flex-direction: column; align-items: center;
+            justify-content: center; text-align: center; padding: 20px;
+            background-color: #ffebee; color: #b71c1c;
+        }
+        [data-theme="dark"] #rejection-view { background-color: #3b0000; color: #ff8a80; }
+        .rejection-text { font-size: 24px; font-weight: bold; max-width: 600px; margin-bottom: 20px; }
+
+        /* Modals */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--modal-bg);
+            display: flex; align-items: center; justify-content: center; z-index: 100;
+        }
+        .modal {
+            background: var(--modal-content); padding: 24px; border-radius: 8px;
+            width: 90%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .modal h2 { margin-top: 0; }
+        .modal input {
+            width: 100%; padding: 10px; margin-bottom: 16px; border: 1px solid var(--toolbar-border);
+            background: var(--bg-color); color: var(--text-color); border-radius: 4px; box-sizing: border-box;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <!-- Main Toolbar -->
+    <div class="toolbar">
+        <button id="btn-theme" class="icon-btn" aria-label="Toggle theme">🌓</button>
+        <div class="spacer"></div>
+        <div id="library-tools">
+            <button id="btn-view-toggle">List View</button>
+            <button id="btn-add-folder">+ Folder</button>
+            <button id="btn-import" class="btn-primary">Import .honest</button>
+            <input type="file" id="file-input" accept=".honest" class="hidden">
+            <button id="btn-install-android" class="hidden">Install App</button>
+        </div>
+        </div>
+    </div>
+
+    <button id="btn-back" class="back-circle-btn hidden" aria-label="Back to library">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
+    <!-- Screens -->
+    <div id="screen-library" class="screen active">
+        <div id="library-container">
+            <div class="library-controls">
+                <button id="btn-up-folder" class="icon-btn hidden" aria-label="Up one folder">←</button>
+                <span id="current-path" style="font-weight: bold;">/</span>
+                <div style="flex: 1;"></div>
+                <div id="sort-controls" style="position: relative;">
+                    <button id="btn-sort-toggle">Sort ▾</button>
+                    <div id="sort-menu" class="context-menu hidden" style="right: 0; left: auto;">
+                        <div class="context-menu-item" data-sort="name-asc">Name (A–Z)</div>
+                        <div class="context-menu-item" data-sort="name-desc">Name (Z–A)</div>
+                        <div class="context-menu-item" data-sort="date-asc">Date (Oldest)</div>
+                        <div class="context-menu-item" data-sort="date-desc">Date (Newest)</div>
+                    </div>
+                </div>
+                <button id="btn-select-toggle">Select</button>
+            </div>
+            <div id="selection-bar" class="hidden" style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+                <span id="selection-count">0 selected</span>
+                <div style="flex: 1;"></div>
+                <button id="btn-select-all">Select All</button>
+                <button id="btn-deselect-all">Deselect All</button>
+                <button id="btn-delete-selected" style="background-color: #d32f2f;">Delete</button>
+                <button id="btn-cancel-selection">Cancel</button>
+            </div>
+            <div id="items-container" class="grid-view"></div>
+        </div>
+    </div>
+
+    <div id="screen-viewer" class="screen">
+        <iframe id="viewer-iframe"></iframe>
+    </div>
+
+    <div id="rejection-view" class="screen">
+        <div class="rejection-text" id="rejection-message"></div>
+        <button id="btn-rejection-back" class="btn-primary">Return to Library</button>
+    </div>
+
+    <!-- Modals -->
+    <div id="username-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <h2>Welcome</h2>
+            <p>Please enter your exact name to verify ownership of your notes.</p>
+            <input type="text" id="username-input" placeholder="Your Name">
+            <button id="btn-save-username" class="btn-primary" style="width: 100%;">Save Identity</button>
+        </div>
+    </div>
+
+    <div id="folder-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <h2>New Folder</h2>
+            <input type="text" id="folder-input" placeholder="Folder Name">
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="btn-cancel-folder">Cancel</button>
+                <button id="btn-save-folder" class="btn-primary">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="move-modal" class="modal-overlay hidden">
+        <div class="modal" style="background: #2a2a2a; border-radius: 12px; color: #fff; width: 450px; max-width: 95%; padding: 16px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 0 16px;">
+                <button id="btn-cancel-move" style="background: transparent; color: #d4a748; padding: 0; font-size: 16px;">Cancel</button>
+                <div style="font-weight: bold; font-size: 16px;" id="move-modal-title">Move</div>
+                <button id="btn-confirm-move" style="background: transparent; color: #555; padding: 0; font-size: 16px; pointer-events: none;">MOVE</button>
+            </div>
+            <div id="move-folder-tree" style="max-height: 400px; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <div id="rename-modal" class="modal-overlay hidden" style="background: #000; z-index: 150;">
+        <div style="position: absolute; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center;">
+            <button id="btn-cancel-rename" style="background: transparent; border: none; color: #fff; font-size: 20px; padding: 8px; cursor: pointer;">✕</button>
+            <button id="btn-confirm-rename" style="background: transparent; border: 1px solid #fff; border-radius: 20px; color: #fff; padding: 6px 16px; font-size: 14px; cursor: pointer;">Done</button>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%;">
+            <div id="rename-icon-container" style="width: 140px; height: 105px; margin-bottom: 24px; display: flex; justify-content: center; align-items: center;"></div>
+            <div style="position: relative; width: 300px; max-width: 90%;">
+                <input type="text" id="rename-input" style="background: transparent; border: none; border-bottom: 1px solid #d4a748; color: #fff; font-size: 16px; text-align: center; width: 100%; padding: 8px; outline: none; box-sizing: border-box;" value="">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- State Management ---
+        let currentUser = localStorage.getItem('honestUsername') || null;
+        let viewMode = localStorage.getItem('honest_view_mode') || 'grid';
+        let deferredInstallPrompt = null;
+        let currentFolderId = 0; 
+        let fileSystem = JSON.parse(localStorage.getItem('honest_fs')) || { nextId: 1, items: [] };
+        let selectionMode = false;
+        let selectedIds = new Set();
+        let sortMode = localStorage.getItem('honest_sort') || 'name-asc'; // name-asc, name-desc, date-asc, date-desc
+        let openMenuId = null;
+
+        const sarcasticMessages = [
+            "Nice try, hacker. These notes belong to someone else. Go study your own stuff!",
+            "Identity theft is not a joke, Jim! This file clearly doesn't have your name on it.",
+            "Access Denied. Did you really think you could just borrow someone else's hard work? Cute.",
+            "Oops! Looks like you caught the wrong file. Keep your hands to your own notes!"
+        ];
+
+        const folderColors = {
+            color1: ['#ff4d6d', '#ff6b8b'],
+            color2: ['#ff7a4d', '#ff9966'],
+            color3: ['#ffaa33', '#ffcc66'],
+            color4: ['#ffdd33', '#ffee66'],
+            color5: ['#33dd77', '#66e099'],
+            color6: ['#33aaff', '#66ccff'],
+            color7: ['#3377ff', '#6699ff'],
+            color8: ['#9955ff', '#b380ff']
+        };
+
+        // --- DOM Elements ---
+        const ui = {
+            themeBtn: document.getElementById('btn-theme'),
+            viewToggleBtn: document.getElementById('btn-view-toggle'),
+            addFolderBtn: document.getElementById('btn-add-folder'),
+            importBtn: document.getElementById('btn-import'),
+            fileInput: document.getElementById('file-input'),
+            backBtn: document.getElementById('btn-back'),
+            upFolderBtn: document.getElementById('btn-up-folder'),
+            currentPath: document.getElementById('current-path'),
+            itemsContainer: document.getElementById('items-container'),
+            libraryTools: document.getElementById('library-tools'),
+            screenLibrary: document.getElementById('screen-library'),
+            screenViewer: document.getElementById('screen-viewer'),
+            rejectionView: document.getElementById('rejection-view'),
+            rejectionMessage: document.getElementById('rejection-message'),
+            rejectionBackBtn: document.getElementById('btn-rejection-back'),
+            viewerIframe: document.getElementById('viewer-iframe'),
+            usernameModal: document.getElementById('username-modal'),
+            usernameInput: document.getElementById('username-input'),
+            saveUsernameBtn: document.getElementById('btn-save-username'),
+            folderModal: document.getElementById('folder-modal'),
+            folderInput: document.getElementById('folder-input'),
+            saveFolderBtn: document.getElementById('btn-save-folder'),
+            cancelFolderBtn: document.getElementById('btn-cancel-folder')
+        };
+
+        function init() {
+            const savedTheme = localStorage.getItem('honest_theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            if (!currentUser) ui.usernameModal.classList.remove('hidden');
+            applyViewMode();
+            renderLibrary();
+        }
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            const installBtn = document.getElementById('btn-install-android');
+            if (installBtn) installBtn.classList.remove('hidden');
+        });
+
+        document.getElementById('btn-install-android').addEventListener('click', async () => {
+            if (!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            await deferredInstallPrompt.userChoice;
+            deferredInstallPrompt = null;
+            document.getElementById('btn-install-android').classList.add('hidden');
+        });
+
+        ui.themeBtn.addEventListener('click', () => {
+            const newTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('honest_theme', newTheme);
+        });
+
+        ui.saveUsernameBtn.addEventListener('click', () => {
+            const val = ui.usernameInput.value.trim();
+            if (val) {
+                currentUser = val;
+                localStorage.setItem('honestUsername', currentUser);
+                ui.usernameModal.classList.add('hidden');
+            }
+        });
+
+        // --- FS & Library ---
+        function saveFS() { localStorage.setItem('honest_fs', JSON.stringify(fileSystem)); }
+
+        function sortItems(items) {
+            const sorted = [...items];
+            sorted.sort((a, b) => {
+                if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+                if (sortMode === 'name-asc') return a.name.localeCompare(b.name);
+                if (sortMode === 'name-desc') return b.name.localeCompare(a.name);
+                if (sortMode === 'date-asc') return (a.createdAt || 0) - (b.createdAt || 0);
+                if (sortMode === 'date-desc') return (b.createdAt || 0) - (a.createdAt || 0);
+                return 0;
+            });
+            return sorted;
+        }
+
+        function closeAllMenus() {
+            openMenuId = null;
+            document.querySelectorAll('.context-menu').forEach(m => { if (m.id !== 'sort-menu') m.remove(); });
+        }
+
+        function renderLibrary() {
+            ui.itemsContainer.innerHTML = '';
+            const items = sortItems(fileSystem.items.filter(i => i.parentId === currentFolderId));
+            if (items.length === 0) ui.itemsContainer.innerHTML = `<div style="padding: 20px; color: #888;">Folder is empty.</div>`;
+
+            items.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'item-card' + (item.type === 'folder' ? ' folder-card' : '');
+                card.dataset.id = item.id;
+                card.draggable = true;
+
+                let visual = '';
+                if (item.type === 'folder') {
+                    const c1 = folderColors[item.color] ? folderColors[item.color][0] : folderColors.color1[0];
+                    const c2 = folderColors[item.color] ? folderColors[item.color][1] : folderColors.color1[1];
+                    const childCount = fileSystem.items.filter(i => i.parentId === item.id).length;
+                    const dateStr = item.createdAt ? new Date(item.createdAt).toISOString().split('T')[0].replace(/-/g, '.') : '2026.06.03';
+                    
+                    card.innerHTML = `
+                        <div class="folder-svg-wrapper">
+                            <svg viewBox="0 0 120 90" style="width:100%; height:auto;">
+                                <defs>
+                                    <linearGradient id="grad-${item.id}" x1="0%" y1="0%" x2="0%" y2="100%">
+                                        <stop offset="0%" stop-color="${c1}" />
+                                        <stop offset="100%" stop-color="${c2}" />
+                                    </linearGradient>
+                                </defs>
+                                <path d="M 5 15 Q 5 5 15 5 L 40 5 Q 45 5 48 10 L 53 18 L 105 18 Q 115 18 115 28 L 115 80 Q 115 90 105 90 L 15 90 Q 5 90 5 80 Z" fill="url(#grad-${item.id})" />
+                            </svg>
+                        </div>
+                        <div class="folder-info">
+                            <div class="folder-title-row">
+                                <span class="item-title">${item.name}</span>
+                                <div class="menu-btn-wrapper" style="position: relative; display: flex;">
+                                    <button class="card-menu-btn">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="folder-meta">
+                                <span>${childCount} items</span>
+                                <span>${dateStr}</span>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    const cleaned = stripMarker(item.content);
+                    card.innerHTML = `
+                        <div class="menu-btn-wrapper" style="position: absolute; top:6px; right:6px; z-index:5;">
+                            <button class="card-menu-btn" style="background: rgba(0,0,0,0.35); color:white;">⋮</button>
+                        </div>
+                        <div class="file-thumb"><iframe srcdoc="${cleaned.replace(/"/g, '&quot;')}"></iframe></div>
+                        <div class="item-title">${item.name}</div>
+                    `;
+                }
+
+                // Open on click (unless in selection mode, or click was on menu button)
+                card.addEventListener('click', (e) => {
+                    if (e.target.closest('.card-menu-btn') || e.target.closest('.context-menu')) return;
+                    if (selectionMode) { toggleSelect(item.id, card); return; }
+                    if (item.type === 'folder') { currentFolderId = item.id; renderLibrary(); }
+                    else { handleOpenFile(item); }
+                });
+
+                // Long-press / hold to enter selection mode
+                let pressTimer;
+                card.addEventListener('pointerdown', () => {
+                    pressTimer = setTimeout(() => {
+                        if (!selectionMode) enterSelectionMode();
+                        toggleSelect(item.id, card);
+                    }, 500);
+                });
+                card.addEventListener('pointerup', () => clearTimeout(pressTimer));
+                card.addEventListener('pointerleave', () => clearTimeout(pressTimer));
+
+                if (selectedIds.has(item.id)) card.classList.add('selected');
+
+                // Context menu
+                card.querySelector('.card-menu-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const wrapper = e.target.closest('.menu-btn-wrapper');
+                    openItemMenu(item, wrapper);
+                });
+
+                // Drag and drop (folders only as drop targets)
+                card.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/plain', String(item.id));
+                });
+                if (item.type === 'folder') {
+                    card.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('drag-over'); });
+                    card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+                    card.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        card.classList.remove('drag-over');
+                        const draggedId = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                        if (draggedId === item.id) return;
+                        const draggedItem = fileSystem.items.find(i => i.id === draggedId);
+                        if (draggedItem) {
+                            draggedItem.parentId = item.id;
+                            saveFS(); renderLibrary();
+                        }
+                    });
+                }
+
+                ui.itemsContainer.appendChild(card);
+            });
+
+            if (currentFolderId === 0) {
+                ui.upFolderBtn.classList.add('hidden');
+                ui.currentPath.textContent = 'Library';
+            } else {
+                ui.upFolderBtn.classList.remove('hidden');
+                ui.currentPath.textContent = `Library / ${fileSystem.items.find(i => i.id === currentFolderId).name}`;
+            }
+
+            updateSelectionUI();
+        }
+
+        function openItemMenu(item, wrapperEl) {
+            closeAllMenus();
+            const menu = document.createElement('div');
+            menu.className = 'context-menu';
+            menu.id = 'item-menu-' + item.id;
+
+            const iconRename = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`;
+            const iconFolderMove = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 9v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2z"/><path d="M12 11v6"/><path d="M9 14l3 3 3-3"/></svg>`;
+            const iconDelete = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
+
+            let html = `<div class="context-menu-item" data-action="rename">${iconRename} Rename</div>`;
+            html += `<div class="context-menu-item" data-action="move">${iconFolderMove} Move</div>`;
+            if (item.type === 'folder') {
+                html += `<div class="color-swatch-row">${Object.keys(folderColors).map(c =>
+                    `<div class="color-swatch" data-color="${c}" style="background:${folderColors[c][0]}"></div>`
+                ).join('')}</div>`;
+            }
+            html += `<div class="context-menu-item danger" data-action="delete">${iconDelete} Delete</div>`;
+            menu.innerHTML = html;
+            wrapperEl.appendChild(menu);
+            openMenuId = item.id;
+
+            menu.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const action = e.target.dataset.action;
+                const color = e.target.dataset.color;
+                if (action === 'rename') {
+                    openRenameDialog(item);
+                } else if (action === 'delete') {
+                    if (confirm(`Delete "${item.name}"?`)) {
+                        deleteItemAndChildren(item.id);
+                        saveFS(); renderLibrary();
+                    }
+                } else if (action === 'move') {
+                    openMoveDialog(item);
+                } else if (color) {
+                    item.color = color; saveFS(); renderLibrary();
+                }
+            });
+        }
+
+        function deleteItemAndChildren(id) {
+            const toDelete = new Set([id]);
+            let changed = true;
+            while (changed) {
+                changed = false;
+                fileSystem.items.forEach(i => {
+                    if (toDelete.has(i.parentId) && !toDelete.has(i.id)) { toDelete.add(i.id); changed = true; }
+                });
+            }
+            fileSystem.items = fileSystem.items.filter(i => !toDelete.has(i.id));
+        }
+
+        let selectedMoveTarget = null;
+        function openMoveDialog(item) {
+            selectedMoveTarget = null;
+            const modal = document.getElementById('move-modal');
+            document.getElementById('move-modal-title').textContent = `Move (${item.name})`;
+            const confirmBtn = document.getElementById('btn-confirm-move');
+            confirmBtn.style.color = '#555';
+            confirmBtn.style.pointerEvents = 'none';
+            
+            const treeContainer = document.getElementById('move-folder-tree');
+            treeContainer.innerHTML = '';
+            
+            const folders = [{id: 0, name: 'Documents', depth: 0}];
+            function addFolders(parentId, depth) {
+                fileSystem.items.filter(i => i.type === 'folder' && i.parentId === parentId && i.id !== item.id).forEach(f => {
+                    folders.push({id: f.id, name: f.name, depth: depth, color: f.color});
+                    addFolders(f.id, depth + 1);
+                });
+            }
+            addFolders(0, 1);
+
+            folders.forEach(f => {
+                const div = document.createElement('div');
+                div.className = 'tree-item';
+                div.style.paddingLeft = (f.depth * 24 + 16) + 'px';
+                div.style.paddingRight = '16px';
+                
+                const cColor = f.id === 0 ? folderColors.color6[0] : (folderColors[f.color] ? folderColors[f.color][0] : folderColors.color1[0]);
+                const iconHtml = `<svg viewBox="0 0 120 90"><path d="M 5 15 Q 5 5 15 5 L 40 5 Q 45 5 48 10 L 53 18 L 105 18 Q 115 18 115 28 L 115 80 Q 115 90 105 90 L 15 90 Q 5 90 5 80 Z" fill="${cColor}"/></svg>`;
+                
+                div.innerHTML = `
+                    <div class="tree-item-left">
+                        <div class="tree-item-icon">${iconHtml}</div>
+                        <div class="tree-item-title">${f.name}</div>
+                    </div>
+                    <div class="tree-item-arrow">❯</div>
+                `;
+                
+                div.addEventListener('click', () => {
+                    treeContainer.querySelectorAll('.tree-item').forEach(el => el.classList.remove('selected'));
+                    div.classList.add('selected');
+                    selectedMoveTarget = f.id;
+                    confirmBtn.style.color = '#d4a748';
+                    confirmBtn.style.pointerEvents = 'auto';
+                });
+                treeContainer.appendChild(div);
+            });
+            
+            modal.classList.remove('hidden');
+            
+            confirmBtn.onclick = () => {
+                if (selectedMoveTarget !== null) {
+                    item.parentId = selectedMoveTarget;
+                    saveFS(); renderLibrary();
+                    modal.classList.add('hidden');
+                }
+            };
+        }
+        document.getElementById('btn-cancel-move').addEventListener('click', () => {
+            document.getElementById('move-modal').classList.add('hidden');
+        });
+
+        let itemToRename = null;
+        function openRenameDialog(item) {
+            itemToRename = item;
+            const modal = document.getElementById('rename-modal');
+            const iconContainer = document.getElementById('rename-icon-container');
+            const input = document.getElementById('rename-input');
+            
+            input.value = item.name;
+            
+            if (item.type === 'folder') {
+                const cColor = folderColors[item.color] ? folderColors[item.color][0] : folderColors.color1[0];
+                iconContainer.innerHTML = `<svg viewBox="0 0 120 90" style="width:100%; height:100%; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.4));"><path d="M 5 15 Q 5 5 15 5 L 40 5 Q 45 5 48 10 L 53 18 L 105 18 Q 115 18 115 28 L 115 80 Q 115 90 105 90 L 15 90 Q 5 90 5 80 Z" fill="${cColor}"/></svg>`;
+            } else {
+                iconContainer.innerHTML = `<svg viewBox="0 0 24 24" style="width:64px; height:64px; color:#fff;" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>`;
+            }
+            
+            modal.classList.remove('hidden');
+            input.focus();
+            input.select();
+        }
+
+        document.getElementById('btn-cancel-rename').addEventListener('click', () => {
+            document.getElementById('rename-modal').classList.add('hidden');
+        });
+
+        document.getElementById('btn-confirm-rename').addEventListener('click', () => {
+            if (itemToRename) {
+                const input = document.getElementById('rename-input');
+                const newName = input.value.trim();
+                if (newName) {
+                    itemToRename.name = newName;
+                    saveFS(); renderLibrary();
+                }
+                document.getElementById('rename-modal').classList.add('hidden');
+            }
+        });
+        
+        document.getElementById('rename-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('btn-confirm-rename').click();
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.context-menu') && !e.target.closest('.card-menu-btn')) closeAllMenus();
+        });
+
+        function enterSelectionMode() {
+            selectionMode = true;
+            document.getElementById('selection-bar').classList.remove('hidden');
+            document.getElementById('btn-select-toggle').textContent = 'Cancel';
+        }
+        function exitSelectionMode() {
+            selectionMode = false;
+            selectedIds.clear();
+            document.getElementById('selection-bar').classList.add('hidden');
+            document.getElementById('btn-select-toggle').textContent = 'Select';
+            renderLibrary();
+        }
+        function toggleSelect(id, cardEl) {
+            if (selectedIds.has(id)) { selectedIds.delete(id); cardEl.classList.remove('selected'); }
+            else { selectedIds.add(id); cardEl.classList.add('selected'); }
+            updateSelectionUI();
+        }
+        function updateSelectionUI() {
+            const countEl = document.getElementById('selection-count');
+            if (countEl) countEl.textContent = `${selectedIds.size} selected`;
+        }
+
+        document.getElementById('btn-select-toggle').addEventListener('click', () => {
+            selectionMode ? exitSelectionMode() : enterSelectionMode();
+        });
+        document.getElementById('btn-cancel-selection').addEventListener('click', exitSelectionMode);
+        document.getElementById('btn-select-all').addEventListener('click', () => {
+            const items = fileSystem.items.filter(i => i.parentId === currentFolderId);
+            items.forEach(i => selectedIds.add(i.id));
+            renderLibrary();
+        });
+        document.getElementById('btn-deselect-all').addEventListener('click', () => {
+            selectedIds.clear();
+            renderLibrary();
+        });
+        document.getElementById('btn-delete-selected').addEventListener('click', () => {
+            if (selectedIds.size === 0) return;
+            if (!confirm(`Delete ${selectedIds.size} item(s)?`)) return;
+            selectedIds.forEach(id => deleteItemAndChildren(id));
+            saveFS();
+            exitSelectionMode();
+        });
+
+        document.getElementById('btn-sort-toggle').addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.getElementById('sort-menu').classList.toggle('hidden');
+        });
+        document.getElementById('sort-menu').addEventListener('click', (e) => {
+            const sort = e.target.dataset.sort;
+            if (sort) {
+                sortMode = sort;
+                localStorage.setItem('honest_sort', sortMode);
+                document.getElementById('sort-menu').classList.add('hidden');
+                renderLibrary();
+            }
+        });
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#sort-controls')) {
+                const sortMenu = document.getElementById('sort-menu');
+                if (sortMenu) sortMenu.classList.add('hidden');
+            }
+        });
+
+        ui.upFolderBtn.addEventListener('click', () => {
+            currentFolderId = fileSystem.items.find(i => i.id === currentFolderId).parentId;
+            renderLibrary();
+        });
+
+        function applyViewMode() {
+            ui.itemsContainer.className = viewMode === 'grid' ? 'grid-view' : 'list-view';
+            ui.viewToggleBtn.textContent = viewMode === 'grid' ? 'List View' : 'Grid View';
+        }
+        ui.viewToggleBtn.addEventListener('click', () => {
+            viewMode = viewMode === 'grid' ? 'list' : 'grid';
+            localStorage.setItem('honest_view_mode', viewMode);
+            applyViewMode();
+        });
+
+        ui.addFolderBtn.addEventListener('click', () => { ui.folderInput.value = ''; ui.folderModal.classList.remove('hidden'); });
+        ui.cancelFolderBtn.addEventListener('click', () => ui.folderModal.classList.add('hidden'));
+        ui.saveFolderBtn.addEventListener('click', () => {
+            fileSystem.items.push({ id: fileSystem.nextId++, type: 'folder', name: ui.folderInput.value.trim() || 'New Folder', parentId: currentFolderId, color: 'color1', createdAt: Date.now() });
+            saveFS(); ui.folderModal.classList.add('hidden'); renderLibrary();
+        });
+
+        ui.importBtn.addEventListener('click', () => ui.fileInput.click());
+        ui.fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!file.name.toLowerCase().endsWith('.honest')) return alert("Invalid format. Please select a .honest file.");
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                fileSystem.items.push({ id: fileSystem.nextId++, type: 'file', name: file.name.replace(/\.honest$/i, ''), parentId: currentFolderId, content: event.target.result, createdAt: Date.now() });
+                saveFS(); renderLibrary();
+            };
+            reader.readAsText(file, 'UTF-8');
+            e.target.value = '';
+        });
+
+        // --- Core Application Logic (Auth & Fuzzy Matching) ---
+
+        function stripMarker(rawText) {
+            const markerRegex = /^<!--HONEST-LOCK\r?\n/;
+            return markerRegex.test(rawText) ? rawText.replace(markerRegex, '') : rawText;
+        }
+
+        function levenshteinDistance(a, b) {
+            const matrix = [];
+            for (let i = 0; i <= a.length; i++) matrix[i] = [i];
+            for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+            for (let i = 1; i <= a.length; i++) {
+                for (let j = 1; j <= b.length; j++) {
+                    const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                    matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost);
+                }
+            }
+            return matrix[a.length][b.length];
+        }
+
+        function calculateSimilarity(str1, str2) {
+            if (str1.length === 0 && str2.length === 0) return 1.0;
+            return 1 - (levenshteinDistance(str1, str2) / Math.max(str1.length, str2.length));
+        }
+
+        function verifyOwnership(htmlString, storedUsername) {
+            if (!storedUsername) return false;
+            
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlString, 'text/html');
+            const metaTag = doc.querySelector('meta[name="honest-owner"]');
+            if (!metaTag) return false;
+            
+            const owner = metaTag.getAttribute('content');
+            if (!owner) return false;
+            
+            const normalize = (str) => str.trim().replace(/\s+/g, ' ').toLowerCase();
+            return calculateSimilarity(normalize(owner), normalize(storedUsername)) >= 0.75;
+        }
+
+        function handleOpenFile(fileItem) {
+            const cleanedHtml = stripMarker(fileItem.content);
+            const isOwner = verifyOwnership(cleanedHtml, currentUser);
+
+            if (!isOwner) {
+                ui.rejectionMessage.textContent = sarcasticMessages[Math.floor(Math.random() * sarcasticMessages.length)];
+                showScreen('rejection');
+            } else {
+                renderHTMLViewer(cleanedHtml);
+                showScreen('viewer');
+            }
+        }
+
+        function renderHTMLViewer(htmlString) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlString, 'text/html');
+            if (!doc.documentElement.hasAttribute('dir')) doc.documentElement.setAttribute('dir', 'rtl');
+            
+            doc.head.insertAdjacentHTML('beforeend', `
+                <meta charset="UTF-8">
+                <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+                <style>
+                    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+                    body {
+                        font-family: 'Cairo', sans-serif !important;
+                        padding: 24px; line-height: 1.6;
+                        max-width: 900px; margin: 0 auto;
+                        box-sizing: border-box;
+                        zoom: 1.35;
+                    }
+                    @media print {
+                        body { display: none !important; }
+                        html::after { content: "Printing is disabled."; display: block !important; font-size: 24px; text-align: center; padding: 50px; }
+                    }
+                </style>
+            `);
+            ui.viewerIframe.srcdoc = doc.documentElement.outerHTML;
+        }
+
+        // --- Navigation ---
+        function showScreen(screenType) {
+            document.body.classList.toggle('viewer-active', screenType !== 'library');
+            ui.screenLibrary.classList.remove('active');
+            ui.screenViewer.classList.remove('active');
+            ui.rejectionView.style.display = 'none';
+            ui.libraryTools.classList.add('hidden');
+
+            if (screenType === 'library') {
+                ui.screenLibrary.classList.add('active');
+                ui.libraryTools.classList.remove('hidden');
+                ui.themeBtn.classList.remove('hidden');
+                ui.viewerIframe.srcdoc = ''; 
+                ui.backBtn.classList.add('hidden');
+                document.querySelector('.toolbar').classList.remove('hidden');
+            } else if (screenType === 'viewer') {
+                ui.screenViewer.classList.add('active');
+                ui.themeBtn.classList.add('hidden');
+                ui.backBtn.classList.remove('hidden');
+                document.querySelector('.toolbar').classList.add('hidden');
+            } else if (screenType === 'rejection') {
+                ui.rejectionView.style.display = 'flex';
+                ui.themeBtn.classList.add('hidden');
+                ui.backBtn.classList.remove('hidden');
+                document.querySelector('.toolbar').classList.add('hidden');
+            }
+        }
+
+        ui.backBtn.addEventListener('click', () => showScreen('library'));
+        ui.rejectionBackBtn.addEventListener('click', () => showScreen('library'));
+
+        init();
+    </script>
+</body>
+</html>
