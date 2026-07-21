@@ -243,6 +243,58 @@
             background: var(--bg-color); color: var(--text-color); border-radius: 4px; box-sizing: border-box;
         }
         .hidden { display: none !important; }
+
+        /* ─── Annotation Toolbar ─────────────────────────────── */
+        #annotation-toolbar {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+            z-index: 200;
+            background: linear-gradient(135deg, #0e1220 0%, #1a2240 60%, #1f2e40 100%);
+            border: 1px solid rgba(212, 167, 72, 0.45);
+            border-radius: 999px;
+            display: none; align-items: center; padding: 7px 12px; gap: 5px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.05) inset;
+            white-space: nowrap;
+            max-width: calc(100vw - 32px);
+            overflow-x: auto;
+        }
+        #annotation-toolbar.visible { display: flex; }
+        .annot-btn {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: #ccc;
+            border-radius: 8px;
+            width: 36px; height: 36px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; cursor: pointer; transition: 0.15s;
+            flex-shrink: 0;
+        }
+        .annot-btn:hover { background: rgba(255,255,255,0.18); color: #fff; }
+        .annot-btn.active {
+            background: rgba(212, 167, 72, 0.25);
+            border-color: rgba(212, 167, 72, 0.7);
+            color: #d4a748;
+            box-shadow: 0 0 8px rgba(212,167,72,0.3);
+        }
+        .annot-sep {
+            width: 1px; height: 28px;
+            background: rgba(255,255,255,0.12);
+            flex-shrink: 0; margin: 0 3px;
+        }
+        .annot-color-swatch {
+            width: 22px; height: 22px; border-radius: 50%; cursor: pointer;
+            border: 2px solid transparent; transition: 0.15s;
+            flex-shrink: 0;
+        }
+        .annot-color-swatch.active { border-color: #fff; box-shadow: 0 0 6px rgba(255,255,255,0.5); }
+        #annot-size-slider {
+            -webkit-appearance: none; appearance: none;
+            width: 72px; height: 4px; border-radius: 2px;
+            background: rgba(255,255,255,0.2); outline: none; cursor: pointer;
+        }
+        #annot-size-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px;
+            border-radius: 50%; background: #d4a748; cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -264,6 +316,36 @@
     <button id="btn-back" class="back-circle-btn hidden" aria-label="Back to library">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
+
+    <!-- Annotation Toolbar (shown only in viewer) -->
+    <div id="annotation-toolbar">
+        <!-- Tool buttons -->
+        <button class="annot-btn active" id="annot-tool-pen" title="Pen" aria-label="Pen tool">✏️</button>
+        <button class="annot-btn" id="annot-tool-highlighter" title="Highlighter" aria-label="Highlighter tool">🖌️</button>
+        <button class="annot-btn" id="annot-tool-eraser" title="Eraser" aria-label="Eraser tool">⊘</button>
+        <button class="annot-btn" id="annot-tool-select" title="Select / Move images" aria-label="Select tool">↖</button>
+        <button class="annot-btn" id="annot-tool-image" title="Embed image" aria-label="Add image">🖼️</button>
+        <div class="annot-sep"></div>
+        <!-- Color swatches -->
+        <div class="annot-color-swatch active" id="annot-color-0" data-color="#1a1a1a" style="background:#1a1a1a" title="Black"></div>
+        <div class="annot-color-swatch" id="annot-color-1" data-color="#e53935" style="background:#e53935" title="Red"></div>
+        <div class="annot-color-swatch" id="annot-color-2" data-color="#1e88e5" style="background:#1e88e5" title="Blue"></div>
+        <div class="annot-color-swatch" id="annot-color-3" data-color="#43a047" style="background:#43a047" title="Green"></div>
+        <div class="annot-color-swatch" id="annot-color-4" data-color="#fb8c00" style="background:#fb8c00" title="Orange"></div>
+        <div class="annot-color-swatch" id="annot-color-5" data-color="#ffee58" style="background:#ffee58" title="Yellow (highlight)"></div>
+        <div class="annot-color-swatch" id="annot-color-6" data-color="#ab47bc" style="background:#ab47bc" title="Purple"></div>
+        <div class="annot-color-swatch" id="annot-color-7" data-color="#ffffff" style="background:#fff;border-color:rgba(255,255,255,0.4)" title="White"></div>
+        <div class="annot-sep"></div>
+        <!-- Stroke size -->
+        <input type="range" id="annot-size-slider" min="2" max="28" value="6" title="Stroke size" aria-label="Stroke size">
+        <div class="annot-sep"></div>
+        <!-- Undo / Redo -->
+        <button class="annot-btn" id="annot-undo" title="Undo" aria-label="Undo">↩</button>
+        <button class="annot-btn" id="annot-redo" title="Redo" aria-label="Redo">↪</button>
+        <button class="annot-btn" id="annot-clear" title="Clear all annotations" aria-label="Clear all" style="color:#ff6b6b">🗑</button>
+    </div>
+    <!-- Hidden image file picker (outer page, avoids iframe CSP) -->
+    <input type="file" id="annot-img-input" accept="image/*" class="hidden">
 
     <!-- Screens -->
     <div id="screen-library" class="screen active">
@@ -360,6 +442,7 @@
         let selectedIds = new Set();
         let sortMode = localStorage.getItem('honest_sort') || 'name-asc'; // name-asc, name-desc, date-asc, date-desc
         let openMenuId = null;
+        let currentFileItem = null; // The file item currently open in the viewer
 
         const sarcasticMessages = [
             "Nice try, hacker. These notes belong to someone else. Go study your own stuff!",
@@ -838,12 +921,25 @@
 
             const reader = new FileReader();
             reader.onload = (event) => {
-                fileSystem.items.push({ id: fileSystem.nextId++, type: 'file', name: file.name.replace(/\.honest$/i, ''), parentId: currentFolderId, content: event.target.result, createdAt: Date.now() });
+                fileSystem.items.push({
+                    id: fileSystem.nextId++, type: 'file',
+                    name: file.name.replace(/\.honest$/i, ''),
+                    parentId: currentFolderId, content: event.target.result,
+                    createdAt: Date.now(),
+                    annotations: { strokes: [], images: [] }
+                });
                 saveFS(); renderLibrary();
             };
             reader.readAsText(file, 'UTF-8');
             e.target.value = '';
         });
+
+        // --- Annotation save bridge (called from inside the iframe) ---
+        window.honestSaveAnnotations = function(data) {
+            if (!currentFileItem) return;
+            currentFileItem.annotations = data;
+            saveFS();
+        };
 
         // --- Core Application Logic (Auth & Fuzzy Matching) ---
 
@@ -894,15 +990,24 @@
                 ui.rejectionMessage.textContent = sarcasticMessages[Math.floor(Math.random() * sarcasticMessages.length)];
                 showScreen('rejection');
             } else {
-                renderHTMLViewer(cleanedHtml);
+                if (!fileItem.annotations) fileItem.annotations = { strokes: [], images: [] };
+                currentFileItem = fileItem;
+                renderHTMLViewer(cleanedHtml, fileItem);
                 showScreen('viewer');
             }
         }
 
-        function renderHTMLViewer(htmlString) {
+        function renderHTMLViewer(htmlString, fileItem) {
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlString, 'text/html');
             if (!doc.documentElement.hasAttribute('dir')) doc.documentElement.setAttribute('dir', 'rtl');
+
+            const annotationsJson = JSON.stringify(
+                (fileItem && fileItem.annotations) ? fileItem.annotations : { strokes: [], images: [] }
+            );
+
+            // Escape the JSON so it can be safely placed inside an HTML attribute
+            const escapedAnnotJson = annotationsJson.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
             
             doc.head.insertAdjacentHTML('beforeend', `
                 <meta charset="UTF-8">
@@ -915,13 +1020,335 @@
                         max-width: 900px; margin: 0 auto;
                         box-sizing: border-box;
                         zoom: 1.35;
+                        position: relative;
                     }
                     @media print {
                         body { display: none !important; }
                         html::after { content: "Printing is disabled."; display: block !important; font-size: 24px; text-align: center; padding: 50px; }
                     }
+                    /* Annotation layer styles */
+                    #honest-annot-canvas {
+                        position: absolute; top: 0; left: 0;
+                        touch-action: pan-x pan-y;
+                        z-index: 9999;
+                        pointer-events: auto;
+                    }
+                    #honest-image-layer {
+                        position: absolute; top: 0; left: 0;
+                        z-index: 9998;
+                        pointer-events: none;
+                    }
+                    #honest-image-layer.select-mode { pointer-events: auto; }
+                    .honest-image-annot {
+                        position: absolute;
+                        cursor: move;
+                        user-select: none; -webkit-user-select: none;
+                        box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+                        pointer-events: auto;
+                    }
+                    .honest-image-annot img {
+                        display: block; width: 100%; height: 100%;
+                        pointer-events: none; draggable: false;
+                    }
+                    .honest-img-resize {
+                        position: absolute; bottom: 0; right: 0;
+                        width: 18px; height: 18px;
+                        background: #d4a748; border-radius: 3px 0 3px 0;
+                        cursor: se-resize; touch-action: none;
+                        display: flex; align-items: center; justify-content: center;
+                        font-size: 10px; color: #000; font-weight: bold;
+                    }
                 </style>
             `);
+
+            // Inject the annotation data store element and annotation layer elements
+            doc.body.insertAdjacentHTML('beforeend',
+                `<input type="hidden" id="honest-annot-data" value="${escapedAnnotJson}">
+<canvas id="honest-annot-canvas"></canvas>
+<div id="honest-image-layer"></div>`);
+
+            // Build the vendored perfect-freehand + annotation controller script
+            const annotScript = `
+/* ====== perfect-freehand v1.2.2 (MIT, vendored) ====== */
+function tt(t,n,u,m=v=>v){return t*m(.5-n*(.5-u))}function g(t,n){return[t[0]+n[0],t[1]+n[1]]}function p(t,n){return[t[0]-n[0],t[1]-n[1]]}function a(t,n){return[t[0]*n,t[1]*n]}function O(t){return[t[1],-t[0]]}function nt(t,n){return t[0]*n[0]+t[1]*n[1]}function ft(t,n){return t[0]===n[0]&&t[1]===n[1]}function pt(t){return Math.hypot(t[0],t[1])}function at(t){return t[0]*t[0]+t[1]*t[1]}function et(t,n){return at(p(t,n))}function ut(t){const l=pt(t);return l===0?[0,0]:[t[0]/l,t[1]/l]}function W(t,n,u){let m=Math.sin(u),v=Math.cos(u),P=t[0]-n[0],S=t[1]-n[1],r=P*v-S*m,f=P*m+S*v;return[r+n[0],f+n[1]]}function U(t,n,u){return g(t,a(p(n,t),u))}function rt(t,n,u){return g(t,a(n,u))}
+var{min:b,PI:vt}=Math,it=.275,Z=vt+1e-4;
+function dt(t,n={}){let{size:u=16,smoothing:m=.5,thinning:v=.5,simulatePressure:P=!0,easing:S=e=>e,start:r={},end:f={},last:_=!1}=n,{cap:j=!0,easing:M=e=>e*(2-e)}=r,{cap:B=!0,easing:h=e=>--e*e*e+1}=f;if(t.length===0||u<=0)return[];let s=t[t.length-1].runningLength,d=r.taper===!1?0:r.taper===!0?Math.max(u,s):r.taper||0,q=f.taper===!1?0:f.taper===!0?Math.max(u,s):f.taper||0,V=Math.pow(u*m,2),w=[],A=[],G=t.slice(0,10).reduce((e,o)=>{let i=o.pressure;if(P){let l=b(1,o.distance/u),Q=b(1,1-l);i=b(1,e+(Q-e)*(l*it))}return(e+i)/2},t[0].pressure),c=tt(u,v,t[t.length-1].pressure,S),H,J=t[0].vector,D=t[0].point,C=D,k=D,z=C,K=!1;for(let e=0;e<t.length;e++){let{pressure:o}=t[e],{point:i,vector:l,distance:Q,runningLength:I}=t[e];if(e<t.length-1&&s-I<3)continue;if(v){if(P){let L=b(1,Q/u),T=b(1,1-L);o=b(1,G+(T-G)*(L*it))}c=tt(u,v,o,S)}else c=u/2;H===void 0&&(H=c);let lt=I<d?M(I/d):1,ot=s-I<q?h((s-I)/q):1;c=Math.max(.01,c*Math.min(lt,ot));let X=(e<t.length-1?t[e+1]:t[e]).vector,R=e<t.length-1?nt(l,X):1,st=nt(l,J)<0&&!K,Y=R!==null&&R<0;if(st||Y){let L=a(O(J),c);for(let T=1/13,F=0;F<=1;F+=T)k=W(p(i,L),i,Z*F),w.push(k),z=W(g(i,L),i,Z*-F),A.push(z);D=k,C=z,Y&&(K=!0);continue}if(K=!1,e===t.length-1){let L=a(O(l),c);w.push(p(i,L)),A.push(g(i,L));continue}let $=a(O(U(X,l,R)),c);k=p(i,$),(e<=1||et(D,k)>V)&&(w.push(k),D=k),z=g(i,$),(e<=1||et(C,z)>V)&&(A.push(z),C=z),G=o,J=l}let x=t[0].point.slice(0,2),y=t.length>1?t[t.length-1].point.slice(0,2):g(t[0].point,[1,1]),N=[],E=[];if(t.length===1){if(!(d||q)||_){let e=rt(x,ut(O(p(x,y))),-(H||c)),o=[];for(let i=1/13,l=i;l<=1;l+=i)o.push(W(e,x,Z*2*l));return o}}else{if(!(d||q&&t.length===1))if(j)for(let o=1/13,i=o;i<=1;i+=o){let l=W(A[0],x,Z*i);N.push(l)}else{let o=p(w[0],A[0]),i=a(o,.5),l=a(o,.51);N.push(p(x,i),p(x,l),g(x,l),g(x,i))}let e=O([-t[t.length-1].vector[0],-t[t.length-1].vector[1]]);if(q||d&&t.length===1)E.push(y);else if(B){let o=rt(y,e,c);for(let i=1/29,l=i;l<1;l+=i)E.push(W(o,y,Z*3*l))}else E.push(g(y,a(e,c)),g(y,a(e,c*.99)),p(y,a(e,c*.99)),p(y,a(e,c)))}return w.concat(E,A.reverse(),N)}
+function mt(t,n={}){var u;let{streamline:m=.5,size:v=16,last:P=!1}=n;if(t.length===0)return[];let S=.15+(1-m)*.85,r=Array.isArray(t[0])?t:t.map(({x:h,y:s,pressure:d=.5})=>[h,s,d]);if(r.length===2){let h=r[1];r=r.slice(0,-1);for(let s=1;s<5;s++)r.push(U(r[0],h,s/4))}r.length===1&&(r=[...r,[...g(r[0],[1,1]),...r[0].slice(2)]]);let f=[{point:[r[0][0],r[0][1]],pressure:r[0][2]>=0?r[0][2]:.25,vector:[1,1],distance:0,runningLength:0}],_=!1,j=0,M=f[0],B=r.length-1;for(let h=1;h<r.length;h++){let s=P&&h===B?r[h].slice(0,2):U(M.point,r[h],S);if(ft(M.point,s))continue;let d=Math.hypot(s[0]-M.point[0],s[1]-M.point[1]);if(j+=d,h<B&&!_){if(j<v)continue;_=!0}M={point:s,pressure:r[h][2]>=0?r[h][2]:.5,vector:ut(p(M.point,s)),distance:d,runningLength:j},f.push(M)}return f[0].vector=((u=f[1])==null?[0,0]:u.vector)||[0,0],f}
+function getStroke(t,n={}){return dt(mt(t,n),n)}
+/* ====== end perfect-freehand ====== */
+
+function getSvgPathFromStroke(pts){if(!pts||pts.length<4)return'';const d=[];d.push('M',pts[0][0].toFixed(2),pts[0][1].toFixed(2),'Q');for(let i=0;i<pts.length-2;i++){const m=[(pts[i][0]+pts[i+1][0])/2,(pts[i][1]+pts[i+1][1])/2];d.push(pts[i][0].toFixed(2),pts[i][1].toFixed(2),m[0].toFixed(2),m[1].toFixed(2));}d.push('Z');return d.join(' ');}
+
+/* ====== Annotation Controller ====== */
+(function() {
+  const canvas = document.getElementById('honest-annot-canvas');
+  const ctx = canvas.getContext('2d');
+  const imageLayer = document.getElementById('honest-image-layer');
+
+  // Load saved annotations
+  const raw = document.getElementById('honest-annot-data').value;
+  let annotations = { strokes: [], images: [] };
+  try { annotations = JSON.parse(raw) || { strokes: [], images: [] }; } catch(e) {}
+
+  // Tool state (exposed on window for outer toolbar)
+  window.activeTool = 'pen';
+  window.currentColor = '#1a1a1a';
+  window.currentSize = 6;
+
+  // Undo / redo stacks
+  let undoStack = [];
+  let redoStack = [];
+  function pushUndo() {
+    undoStack.push(JSON.parse(JSON.stringify(annotations)));
+    if (undoStack.length > 50) undoStack.shift();
+    redoStack = [];
+  }
+
+  // ---- Canvas sizing ----
+  let dprVal = 1;
+  function fitCanvas() {
+    dprVal = window.devicePixelRatio || 1;
+    const w = Math.max(document.body.scrollWidth, document.documentElement.scrollWidth, 1);
+    const h = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, 1);
+    canvas.style.width  = w + 'px';
+    canvas.style.height = h + 'px';
+    canvas.width  = Math.round(w * dprVal);
+    canvas.height = Math.round(h * dprVal);
+    redrawAll();
+  }
+  fitCanvas();
+  document.fonts.ready.then(fitCanvas);
+  new ResizeObserver(fitCanvas).observe(document.body);
+
+  // ---- Save (debounced, via parent bridge) ----
+  let saveTimer = null;
+  function saveAnnotationsDebounced() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try { window.parent.honestSaveAnnotations(JSON.parse(JSON.stringify(annotations))); } catch(e) {}
+    }, 400);
+  }
+
+  // ---- Redraw ----
+  function drawStroke(ctx2, stroke) {
+    if (!stroke || !stroke.points || stroke.points.length < 1) return;
+    const isHL = stroke.tool === 'highlighter';
+    const outline = getStroke(stroke.points, {
+      size: stroke.size || 6,
+      thinning: isHL ? 0 : 0.6,
+      smoothing: 0.5,
+      streamline: 0.5,
+      simulatePressure: stroke.points[0] && stroke.points[0][2] === 0.5
+    });
+    if (!outline || outline.length < 4) return;
+    const path = new Path2D(getSvgPathFromStroke(outline));
+    ctx2.save();
+    if (isHL) {
+      ctx2.globalCompositeOperation = 'multiply';
+      ctx2.globalAlpha = 0.45;
+    } else {
+      ctx2.globalCompositeOperation = 'source-over';
+      ctx2.globalAlpha = 1;
+    }
+    ctx2.fillStyle = stroke.color || '#1a1a1a';
+    ctx2.fill(path);
+    ctx2.restore();
+  }
+
+  function redrawAll(inProgress) {
+    const w = canvas.width, h = canvas.height;
+    ctx.save();
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.restore();
+    ctx.save();
+    ctx.scale(dprVal, dprVal);
+    annotations.strokes.forEach(s => drawStroke(ctx, s));
+    if (inProgress) drawStroke(ctx, inProgress);
+    ctx.restore();
+  }
+
+  // ---- Pointer events ----
+  let currentStroke = null;
+  let penStrokeActive = false;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') return; // let browser scroll/pinch
+    if (window.activeTool === 'select') return;
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    penStrokeActive = true;
+    currentStroke = {
+      id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36),
+      tool: window.activeTool,
+      color: window.currentColor,
+      size: window.currentSize,
+      points: [[e.offsetX, e.offsetY, e.pressure > 0 ? e.pressure : 0.5]]
+    };
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!currentStroke) return;
+    if (e.pointerType === 'touch') { e.preventDefault(); return; }
+    currentStroke.points.push([e.offsetX, e.offsetY, e.pressure > 0 ? e.pressure : 0.5]);
+    redrawAll(currentStroke);
+  });
+
+  ['pointerup', 'pointercancel'].forEach(evt => canvas.addEventListener(evt, (e) => {
+    if (currentStroke) {
+      if (window.activeTool === 'eraser') {
+        pushUndo();
+        eraseStrokesNear(currentStroke.points);
+      } else {
+        pushUndo();
+        annotations.strokes.push(currentStroke);
+      }
+      currentStroke = null;
+      saveAnnotationsDebounced();
+      redrawAll();
+    }
+    penStrokeActive = false;
+  }));
+
+  // ---- Eraser ----
+  function eraseStrokesNear(erasePoints) {
+    annotations.strokes = annotations.strokes.filter(stroke =>
+      !stroke.points.some(([sx, sy]) =>
+        erasePoints.some(([ex, ey]) => Math.hypot(sx - ex, sy - ey) < 20)
+      )
+    );
+  }
+
+  // ---- Images ----
+  function renderImages() {
+    imageLayer.innerHTML = '';
+    annotations.images.forEach(img => addImageElement(img));
+  }
+
+  function addImageElement(imgData) {
+    const div = document.createElement('div');
+    div.className = 'honest-image-annot';
+    div.style.left   = imgData.x + 'px';
+    div.style.top    = imgData.y + 'px';
+    div.style.width  = imgData.width  + 'px';
+    div.style.height = imgData.height + 'px';
+    div.dataset.imgId = imgData.id;
+
+    const imgEl = document.createElement('img');
+    imgEl.src = imgData.src;
+    imgEl.draggable = false;
+    div.appendChild(imgEl);
+
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'honest-img-resize';
+    resizeHandle.textContent = '⤡';
+    div.appendChild(resizeHandle);
+
+    // Drag to move
+    let dragStartX, dragStartY, origX, origY;
+    div.addEventListener('pointerdown', (e) => {
+      if (e.target === resizeHandle) return;
+      e.preventDefault();
+      div.setPointerCapture(e.pointerId);
+      dragStartX = e.clientX; dragStartY = e.clientY;
+      origX = imgData.x; origY = imgData.y;
+      div.addEventListener('pointermove', onMove);
+      div.addEventListener('pointerup', onUp);
+    });
+    function onMove(e) {
+      imgData.x = origX + (e.clientX - dragStartX);
+      imgData.y = origY + (e.clientY - dragStartY);
+      div.style.left = imgData.x + 'px';
+      div.style.top  = imgData.y + 'px';
+    }
+    function onUp() {
+      div.removeEventListener('pointermove', onMove);
+      div.removeEventListener('pointerup', onUp);
+      saveAnnotationsDebounced();
+    }
+
+    // Resize handle
+    let resizeStartX, resizeStartY, origW, origH;
+    resizeHandle.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      resizeHandle.setPointerCapture(e.pointerId);
+      resizeStartX = e.clientX; resizeStartY = e.clientY;
+      origW = imgData.width; origH = imgData.height;
+      resizeHandle.addEventListener('pointermove', onResizeMove);
+      resizeHandle.addEventListener('pointerup', onResizeUp);
+    });
+    function onResizeMove(e) {
+      imgData.width  = Math.max(40, origW + (e.clientX - resizeStartX));
+      imgData.height = Math.max(40, origH + (e.clientY - resizeStartY));
+      div.style.width  = imgData.width  + 'px';
+      div.style.height = imgData.height + 'px';
+    }
+    function onResizeUp() {
+      resizeHandle.removeEventListener('pointermove', onResizeMove);
+      resizeHandle.removeEventListener('pointerup', onResizeUp);
+      saveAnnotationsDebounced();
+    }
+
+    imageLayer.appendChild(div);
+  }
+
+  // Expose function for outer toolbar to call
+  window.honestAddImage = function(dataUrl) {
+    pushUndo();
+    const imgData = {
+      id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36),
+      src: dataUrl,
+      x: 60, y: 60,
+      width: 300, height: 200
+    };
+    annotations.images.push(imgData);
+    addImageElement(imgData);
+    saveAnnotationsDebounced();
+  };
+
+  // Select mode toggle: make image layer pointer-interactive
+  window.honestSetSelectMode = function(isSelect) {
+    imageLayer.classList.toggle('select-mode', isSelect);
+    canvas.style.pointerEvents = isSelect ? 'none' : 'auto';
+  };
+
+  // ---- Undo / Redo ----
+  window.honestUndo = function() {
+    if (undoStack.length === 0) return;
+    redoStack.push(JSON.parse(JSON.stringify(annotations)));
+    annotations = undoStack.pop();
+    redrawAll();
+    renderImages();
+    saveAnnotationsDebounced();
+  };
+  window.honestRedo = function() {
+    if (redoStack.length === 0) return;
+    undoStack.push(JSON.parse(JSON.stringify(annotations)));
+    annotations = redoStack.pop();
+    redrawAll();
+    renderImages();
+    saveAnnotationsDebounced();
+  };
+
+  // ---- Clear all ----
+  window.honestClearAll = function() {
+    pushUndo();
+    annotations.strokes = [];
+    annotations.images = [];
+    imageLayer.innerHTML = '';
+    redrawAll();
+    saveAnnotationsDebounced();
+  };
+
+  // Initial render of any saved images
+  renderImages();
+})();
+`;
+
+            const scriptEl = doc.createElement('script');
+            scriptEl.textContent = annotScript;
+            doc.body.appendChild(scriptEl);
+
             ui.viewerIframe.srcdoc = doc.documentElement.outerHTML;
         }
 
@@ -932,6 +1359,7 @@
             ui.screenViewer.classList.remove('active');
             ui.rejectionView.style.display = 'none';
             ui.libraryTools.classList.add('hidden');
+            const annotToolbar = document.getElementById('annotation-toolbar');
 
             if (screenType === 'library') {
                 ui.screenLibrary.classList.add('active');
@@ -940,21 +1368,102 @@
                 ui.viewerIframe.srcdoc = ''; 
                 ui.backBtn.classList.add('hidden');
                 document.querySelector('.toolbar').classList.remove('hidden');
+                annotToolbar.classList.remove('visible');
+                currentFileItem = null;
             } else if (screenType === 'viewer') {
                 ui.screenViewer.classList.add('active');
                 ui.themeBtn.classList.add('hidden');
                 ui.backBtn.classList.remove('hidden');
                 document.querySelector('.toolbar').classList.add('hidden');
+                annotToolbar.classList.add('visible');
             } else if (screenType === 'rejection') {
                 ui.rejectionView.style.display = 'flex';
                 ui.themeBtn.classList.add('hidden');
                 ui.backBtn.classList.remove('hidden');
                 document.querySelector('.toolbar').classList.add('hidden');
+                annotToolbar.classList.remove('visible');
             }
         }
 
         ui.backBtn.addEventListener('click', () => showScreen('library'));
         ui.rejectionBackBtn.addEventListener('click', () => showScreen('library'));
+
+        // ---- Annotation Toolbar Wiring ----
+        const annotColors = ['#1a1a1a','#e53935','#1e88e5','#43a047','#fb8c00','#ffee58','#ab47bc','#ffffff'];
+        let annotCurrentColor = '#1a1a1a';
+        let annotCurrentSize = 6;
+        let annotCurrentTool = 'pen';
+
+        function annotSetTool(tool) {
+            annotCurrentTool = tool;
+            // Update active state on buttons
+            ['pen','highlighter','eraser','select'].forEach(t => {
+                document.getElementById('annot-tool-' + t).classList.toggle('active', t === tool);
+            });
+            document.getElementById('annot-tool-image').classList.remove('active');
+            // Push to iframe
+            const cw = ui.viewerIframe.contentWindow;
+            if (!cw) return;
+            cw.activeTool = tool;
+            if (typeof cw.honestSetSelectMode === 'function') cw.honestSetSelectMode(tool === 'select');
+        }
+
+        document.getElementById('annot-tool-pen').addEventListener('click', () => annotSetTool('pen'));
+        document.getElementById('annot-tool-highlighter').addEventListener('click', () => annotSetTool('highlighter'));
+        document.getElementById('annot-tool-eraser').addEventListener('click', () => annotSetTool('eraser'));
+        document.getElementById('annot-tool-select').addEventListener('click', () => annotSetTool('select'));
+
+        // Color swatches
+        document.querySelectorAll('.annot-color-swatch').forEach(swatch => {
+            swatch.addEventListener('click', () => {
+                annotCurrentColor = swatch.dataset.color;
+                document.querySelectorAll('.annot-color-swatch').forEach(s => s.classList.remove('active'));
+                swatch.classList.add('active');
+                const cw = ui.viewerIframe.contentWindow;
+                if (cw) cw.currentColor = annotCurrentColor;
+                // Auto-switch away from select/eraser when a color is picked
+                if (annotCurrentTool === 'select' || annotCurrentTool === 'eraser') annotSetTool('pen');
+            });
+        });
+
+        // Size slider
+        document.getElementById('annot-size-slider').addEventListener('input', (e) => {
+            annotCurrentSize = parseInt(e.target.value, 10);
+            const cw = ui.viewerIframe.contentWindow;
+            if (cw) cw.currentSize = annotCurrentSize;
+        });
+
+        // Undo / Redo
+        document.getElementById('annot-undo').addEventListener('click', () => {
+            const cw = ui.viewerIframe.contentWindow;
+            if (cw && typeof cw.honestUndo === 'function') cw.honestUndo();
+        });
+        document.getElementById('annot-redo').addEventListener('click', () => {
+            const cw = ui.viewerIframe.contentWindow;
+            if (cw && typeof cw.honestRedo === 'function') cw.honestRedo();
+        });
+
+        // Clear all
+        document.getElementById('annot-clear').addEventListener('click', () => {
+            if (!confirm('Clear all annotations on this note? This can be undone with Undo.')) return;
+            const cw = ui.viewerIframe.contentWindow;
+            if (cw && typeof cw.honestClearAll === 'function') cw.honestClearAll();
+        });
+
+        // Image embedding
+        const annotImgInput = document.getElementById('annot-img-input');
+        document.getElementById('annot-tool-image').addEventListener('click', () => annotImgInput.click());
+        annotImgInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const cw = ui.viewerIframe.contentWindow;
+                if (cw && typeof cw.honestAddImage === 'function') cw.honestAddImage(ev.target.result);
+            };
+            reader.readAsDataURL(file);
+            e.target.value = '';
+        });
 
         init();
     </script>
