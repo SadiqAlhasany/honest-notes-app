@@ -35,6 +35,7 @@
     let currentStrokeGesture = null;
     let pendingAnnotationImage = null;
     let selectedAnnotationImageId = null;
+    let stylusConnectionEnabled = true;
 
     function mountUi() {
         if (document.getElementById('annotation-toolbar')) return;
@@ -199,7 +200,6 @@
         if (item.tool === 'highlighter') {
             path.classList.add('annotation-highlighter-stroke');
             path.setAttribute('stroke-opacity', String(item.opacity));
-            path.style.mixBlendMode = 'multiply';
         } else {
             path.setAttribute('opacity', String(item.opacity));
         }
@@ -456,6 +456,7 @@
     function placePendingImage(layer, pageIndex, point) {
         if (!pendingAnnotationImage) {
             selectAnnotationImage(null);
+            updateAnnotationInteraction();
             return;
         }
         const baseWidth = Number(layer.dataset.baseWidth);
@@ -474,6 +475,7 @@
         annotationItemsForPage(pageIndex).push(item);
         pendingAnnotationImage = null;
         selectedAnnotationImageId = null;
+        updateAnnotationInteraction();
         renderAnnotationPage(pageIndex);
         scheduleAnnotationSave();
         showAnnotationToast('Image placed · long-press it to edit');
@@ -488,12 +490,15 @@
         const point = getAnnotationPoint(layer, event);
         if (selectedAnnotationImageId) selectAnnotationImage(null);
 
-        if (activeAnnotationTool === 'image') {
+        if (pendingAnnotationImage) {
             event.preventDefault();
             placePendingImage(layer, pageIndex, point);
             return;
         }
         if (!['pen', 'highlighter', 'eraser'].includes(activeAnnotationTool)) return;
+        // With Stylus Connection enabled, touch contacts belong to viewer
+        // navigation. Recognized pens and desktop mouse input can annotate.
+        if (stylusConnectionEnabled && event.pointerType === 'touch') return;
         event.preventDefault();
         surface.setPointerCapture?.(event.pointerId);
 
@@ -561,27 +566,33 @@
         scheduleAnnotationSave();
     }
 
+    function currentAnnotationInteraction() {
+        return pendingAnnotationImage
+            ? 'image-placement'
+            : activeAnnotationTool || 'none';
+    }
+
     function createAnnotationLayer(pageDom, pageIndex, baseWidth, baseHeight) {
         const layer = document.createElement('div');
         layer.className = 'annotation-layer';
         layer.dataset.pageIndex = pageIndex;
         layer.dataset.baseWidth = baseWidth;
         layer.dataset.baseHeight = baseHeight;
-        layer.dataset.interaction = activeAnnotationTool || 'none';
+        layer.dataset.interaction = currentAnnotationInteraction();
+        layer.dataset.stylusConnection = String(stylusConnectionEnabled);
         layer.style.width = `${baseWidth}px`;
         layer.style.height = `${baseHeight}px`;
 
-        const strokeSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        strokeSvg.classList.add('annotation-strokes');
-        strokeSvg.setAttribute('viewBox', `0 0 ${baseWidth} ${baseHeight}`);
-        strokeSvg.setAttribute('preserveAspectRatio', 'none');
-        strokeSvg.setAttribute('aria-hidden', 'true');
-
-        const highlighterGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        highlighterGroup.classList.add('annotation-highlighter-strokes');
-        const inkGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        inkGroup.classList.add('annotation-ink-strokes');
-        strokeSvg.append(highlighterGroup, inkGroup);
+        const createStrokeSvg = className => {
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.classList.add('annotation-strokes', className);
+            svg.setAttribute('viewBox', `0 0 ${baseWidth} ${baseHeight}`);
+            svg.setAttribute('preserveAspectRatio', 'none');
+            svg.setAttribute('aria-hidden', 'true');
+            return svg;
+        };
+        const highlighterSvg = createStrokeSvg('annotation-highlighter-strokes');
+        const inkSvg = createStrokeSvg('annotation-ink-strokes');
 
         const surface = document.createElement('div');
         surface.className = 'annotation-input-surface';
@@ -592,15 +603,17 @@
 
         const images = document.createElement('div');
         images.className = 'annotation-images';
-        layer.append(surface, strokeSvg, images);
+        layer.append(surface, highlighterSvg, inkSvg, images);
         pageDom.appendChild(layer);
         renderAnnotationPage(pageIndex);
         return layer;
     }
 
     function updateAnnotationInteraction() {
+        const interaction = currentAnnotationInteraction();
         ui.pdfContainer.querySelectorAll('.annotation-layer').forEach(layer => {
-            layer.dataset.interaction = activeAnnotationTool || 'none';
+            layer.dataset.interaction = interaction;
+            layer.dataset.stylusConnection = String(stylusConnectionEnabled);
         });
         ui.annotationInkBtn.classList.toggle(
             'is-active',
@@ -609,10 +622,15 @@
                 || activeAnnotationTool === 'eraser'
         );
         ui.annotationEraser.classList.toggle('is-active', activeAnnotationTool === 'eraser');
-        ui.annotationImageBtn.classList.toggle('is-active', activeAnnotationTool === 'image');
+        ui.annotationImageBtn.classList.remove('is-active');
         ui.annotationTray.querySelectorAll('.annotation-preset').forEach((button, index) => {
             button.classList.toggle('is-selected', index === selectedAnnotationPreset);
         });
+    }
+
+    function setStylusConnectionEnabled(enabled) {
+        stylusConnectionEnabled = Boolean(enabled);
+        updateAnnotationInteraction();
     }
 
     function closeAnnotationSettings() {
@@ -752,7 +770,7 @@
         });
         ui.annotationImageBtn.addEventListener('click', event => {
             event.stopPropagation();
-            activeAnnotationTool = 'image';
+            pendingAnnotationImage = null;
             closeAnnotationSettings();
             updateAnnotationInteraction();
             ui.annotationImageInput.click();
@@ -760,14 +778,25 @@
         ui.annotationImageInput.addEventListener('change', async event => {
             const file = event.target.files?.[0];
             event.target.value = '';
-            if (!file) return;
+            if (!file) {
+                pendingAnnotationImage = null;
+                updateAnnotationInteraction();
+                return;
+            }
             try {
                 pendingAnnotationImage = await readImageForAnnotation(file);
+                updateAnnotationInteraction();
                 showAnnotationToast('Tap anywhere on a page to place the image');
             } catch (error) {
                 console.warn(error);
+                pendingAnnotationImage = null;
+                updateAnnotationInteraction();
                 showAnnotationToast(error.message || 'Unable to open this image');
             }
+        });
+        ui.annotationImageInput.addEventListener('cancel', () => {
+            pendingAnnotationImage = null;
+            updateAnnotationInteraction();
         });
         ui.annotationTypePen.addEventListener('click', () => changeSelectedPresetType('pen'));
         ui.annotationTypeHighlighter.addEventListener('click', () => changeSelectedPresetType('highlighter'));
@@ -793,7 +822,6 @@
             if (
                 (event.key === 'Delete' || event.key === 'Backspace')
                 && selectedAnnotationImageId
-                && activeAnnotationTool === 'image'
             ) {
                 const image = ui.pdfContainer.querySelector(
                     `.annotation-image[data-annotation-id="${selectedAnnotationImageId}"]`
@@ -806,6 +834,7 @@
             }
             if (event.key === 'Escape') {
                 pendingAnnotationImage = null;
+                updateAnnotationInteraction();
                 closeAnnotationSettings();
             }
         });
@@ -821,6 +850,7 @@
         setAnnotationTrayOpen(false);
         activeAnnotationTool = null;
         pendingAnnotationImage = null;
+        updateAnnotationInteraction();
     }
 
     function hideToolbar() {
@@ -843,6 +873,7 @@
         flush: flushAnnotationSave,
         createLayer: createAnnotationLayer,
         renderPage: renderAnnotationPage,
+        setStylusConnectionEnabled,
         enterViewer,
         leaveViewer,
         hideToolbar,
