@@ -321,7 +321,6 @@
 .annotation-layer {
     position: absolute;
     inset: 0;
-    z-index: 3;
     pointer-events: none;
     overflow: hidden;
 }
@@ -329,15 +328,19 @@
 .annotation-strokes {
     position: absolute;
     inset: 0;
-    z-index: 4;
     width: 100%;
     height: 100%;
     pointer-events: none;
     overflow: visible;
 }
 
-.annotation-highlighter-stroke {
+.annotation-highlighter-strokes {
+    z-index: 4;
     mix-blend-mode: multiply;
+}
+
+.annotation-ink-strokes {
+    z-index: 5;
 }
 
 .annotation-input-surface {
@@ -347,6 +350,12 @@
     pointer-events: none;
     touch-action: none;
     cursor: crosshair;
+}
+
+.annotation-layer[data-stylus-connection="true"] .annotation-input-surface {
+    /* One-finger vertical navigation and the viewer's existing two-finger
+       pinch handler remain available while an ink tool is selected. */
+    touch-action: pan-y;
 }
 
 .annotation-layer[data-interaction="pen"] .annotation-input-surface,
@@ -359,7 +368,7 @@
     cursor: cell;
 }
 
-.annotation-layer[data-interaction="image"] .annotation-input-surface {
+.annotation-layer[data-interaction="image-placement"] .annotation-input-surface {
     z-index: 3;
     pointer-events: auto;
     cursor: copy;
@@ -368,7 +377,7 @@
 .annotation-images {
     position: absolute;
     inset: 0;
-    z-index: 5;
+    z-index: 6;
     pointer-events: none;
 }
 
