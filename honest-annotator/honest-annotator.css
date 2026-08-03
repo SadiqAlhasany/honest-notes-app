@@ -353,9 +353,10 @@
 }
 
 .annotation-layer[data-stylus-connection="true"] .annotation-input-surface {
-    /* One-finger vertical navigation and the viewer's existing two-finger
-       pinch handler remain available while an ink tool is selected. */
-    touch-action: pan-y;
+    /* Keep the browser from converting a stylus stroke into viewport panning.
+       Finger scrolling is routed explicitly by the annotator, while the
+       viewer's existing two-finger pinch handlers continue to handle zoom. */
+    touch-action: none;
 }
 
 .annotation-layer[data-interaction="pen"] .annotation-input-surface,
