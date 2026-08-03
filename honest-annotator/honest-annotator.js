@@ -36,6 +36,7 @@
     let pendingAnnotationImage = null;
     let selectedAnnotationImageId = null;
     let stylusConnectionEnabled = true;
+    let touchScrollGesture = null;
 
     function mountUi() {
         if (document.getElementById('annotation-toolbar')) return;
@@ -481,6 +482,99 @@
         showAnnotationToast('Image placed · long-press it to edit');
     }
 
+    function isInkInteraction(layer) {
+        return ['pen', 'highlighter', 'eraser'].includes(layer?.dataset.interaction);
+    }
+
+    function touchPointInViewer(surface, touch) {
+        const ownerWindow = surface.ownerDocument?.defaultView;
+        if (!ownerWindow || ownerWindow === global || !ownerWindow.frameElement) {
+            return { x: touch.clientX, y: touch.clientY };
+        }
+        const frameRect = ownerWindow.frameElement.getBoundingClientRect();
+        return {
+            x: frameRect.left + touch.clientX * frameRect.width / Math.max(1, ownerWindow.innerWidth),
+            y: frameRect.top + touch.clientY * frameRect.height / Math.max(1, ownerWindow.innerHeight)
+        };
+    }
+
+    function viewerScrollContainer() {
+        return ui.pdfContainer.closest('#screen-viewer');
+    }
+
+    function onAnnotationTouchStart(event) {
+        const surface = event.currentTarget;
+        const layer = surface.closest('.annotation-layer');
+        if (
+            !stylusConnectionEnabled
+            || !isInkInteraction(layer)
+            || currentStrokeGesture
+        ) {
+            touchScrollGesture = null;
+            return;
+        }
+        if (event.touches.length !== 1) {
+            touchScrollGesture = null;
+            return;
+        }
+        const touch = event.touches[0];
+        const point = touchPointInViewer(surface, touch);
+        event.preventDefault();
+        touchScrollGesture = {
+            surface,
+            identifier: touch.identifier,
+            lastY: point.y
+        };
+    }
+
+    function onAnnotationTouchMove(event) {
+        const gesture = touchScrollGesture;
+        if (
+            !gesture
+            || gesture.surface !== event.currentTarget
+            || currentStrokeGesture
+            || event.touches.length !== 1
+        ) {
+            if (event.touches.length !== 1) touchScrollGesture = null;
+            return;
+        }
+        const touch = Array.from(event.touches)
+            .find(candidate => candidate.identifier === gesture.identifier);
+        if (!touch) {
+            touchScrollGesture = null;
+            return;
+        }
+        const point = touchPointInViewer(gesture.surface, touch);
+        const deltaY = gesture.lastY - point.y;
+        gesture.lastY = point.y;
+        event.preventDefault();
+        if (deltaY) viewerScrollContainer()?.scrollBy(0, deltaY);
+    }
+
+    function finishAnnotationTouch(event) {
+        if (!stylusConnectionEnabled || currentStrokeGesture) {
+            touchScrollGesture = null;
+            return;
+        }
+        if (event.touches.length !== 1) {
+            touchScrollGesture = null;
+            return;
+        }
+        const touch = event.touches[0];
+        const surface = touch.target?.closest?.('.annotation-input-surface');
+        const layer = surface?.closest('.annotation-layer');
+        if (!surface || !isInkInteraction(layer)) {
+            touchScrollGesture = null;
+            return;
+        }
+        const point = touchPointInViewer(surface, touch);
+        touchScrollGesture = {
+            surface,
+            identifier: touch.identifier,
+            lastY: point.y
+        };
+    }
+
     function onAnnotationPointerDown(event) {
         if (event.button !== undefined && event.button !== 0) return;
         if (consumeOpenAnnotationSettings(event)) return;
@@ -600,6 +694,10 @@
         surface.addEventListener('pointermove', onAnnotationPointerMove);
         surface.addEventListener('pointerup', finishAnnotationPointer);
         surface.addEventListener('pointercancel', finishAnnotationPointer);
+        surface.addEventListener('touchstart', onAnnotationTouchStart, { passive: false });
+        surface.addEventListener('touchmove', onAnnotationTouchMove, { passive: false });
+        surface.addEventListener('touchend', finishAnnotationTouch);
+        surface.addEventListener('touchcancel', finishAnnotationTouch);
 
         const images = document.createElement('div');
         images.className = 'annotation-images';
@@ -630,6 +728,7 @@
 
     function setStylusConnectionEnabled(enabled) {
         stylusConnectionEnabled = Boolean(enabled);
+        touchScrollGesture = null;
         updateAnnotationInteraction();
     }
 
@@ -864,6 +963,7 @@
         selectedAnnotationImageId = null;
         pendingAnnotationImage = null;
         currentStrokeGesture = null;
+        touchScrollGesture = null;
     }
 
     global.HonestAnnotator = Object.freeze({
