@@ -8,11 +8,7 @@
     const IMAGE_LONG_PRESS_MS = 1500;
     const IMAGE_LONG_PRESS_MOVE_TOLERANCE = 9;
     const STRAIGHT_LINE_SNAP_TANGENT = Math.tan(10 * Math.PI / 180);
-    const TOUCH_VELOCITY_WINDOW_MS = 100;
-    const TOUCH_RELEASE_IDLE_MS = 110;
-    const TOUCH_MOMENTUM_DECAY = 0.0045;
-    const TOUCH_MOMENTUM_MIN_VELOCITY = 0.018;
-    const TOUCH_MOMENTUM_MAX_VELOCITY = 3.4;
+    const DRAWING_INTERVAL_MS = 16;
     const ANNOTATION_COLORS = [
         '#ef4444', '#f97316', '#facc15', '#22c55e', '#2dd4bf',
         '#38bdf8', '#3b82f6', '#8b5cf6', '#d946ef', '#111827'
@@ -41,12 +37,6 @@
     let pendingAnnotationImage = null;
     let selectedAnnotationImageId = null;
     let stylusConnectionEnabled = true;
-    let touchScrollGesture = null;
-    let touchScrollFrame = null;
-    let pendingTouchScrollDelta = 0;
-    let touchMomentumFrame = null;
-    let touchMomentumVelocity = 0;
-    let touchMomentumLastTime = 0;
 
     function mountUi() {
         if (document.getElementById('annotation-toolbar')) return;
@@ -243,7 +233,6 @@
 
     function beginImageMove(event, layer, item, node, resizing = false) {
         if (selectedAnnotationImageId !== item.id) return;
-        cancelTouchScrollMotion();
         event.preventDefault();
         event.stopPropagation();
         selectAnnotationImage(item.id);
@@ -287,7 +276,6 @@
     function beginImageLongPress(event, item, node) {
         if (event.button !== undefined && event.button !== 0) return;
         if (consumeOpenAnnotationSettings(event)) return;
-        cancelTouchScrollMotion();
 
         const startX = event.clientX;
         const startY = event.clientY;
@@ -343,7 +331,6 @@
         deleteButton.textContent = '×';
         deleteButton.addEventListener('pointerdown', event => {
             if (consumeOpenAnnotationSettings(event)) return;
-            cancelTouchScrollMotion();
             event.preventDefault();
             event.stopPropagation();
             removeAnnotationItem(pageIndex, item.id);
@@ -499,214 +486,14 @@
         return ['pen', 'highlighter', 'eraser'].includes(layer?.dataset.interaction);
     }
 
-    function touchPointInViewer(surface, touch) {
-        const ownerWindow = surface.ownerDocument?.defaultView;
-        if (!ownerWindow || ownerWindow === global || !ownerWindow.frameElement) {
-            return { x: touch.clientX, y: touch.clientY };
-        }
-        const frameRect = ownerWindow.frameElement.getBoundingClientRect();
-        return {
-            x: frameRect.left + touch.clientX * frameRect.width / Math.max(1, ownerWindow.innerWidth),
-            y: frameRect.top + touch.clientY * frameRect.height / Math.max(1, ownerWindow.innerHeight)
-        };
-    }
-
-    function viewerScrollContainer() {
-        return ui.pdfContainer.closest('#screen-viewer');
-    }
-
-    function applyViewerScroll(deltaY) {
-        const viewer = viewerScrollContainer();
-        if (!viewer || !deltaY) return false;
-        const before = viewer.scrollTop;
-        viewer.scrollBy(0, deltaY);
-        return Math.abs(viewer.scrollTop - before) > 0.01;
-    }
-
-    function flushPendingTouchScroll() {
-        if (touchScrollFrame !== null) {
-            global.cancelAnimationFrame(touchScrollFrame);
-            touchScrollFrame = null;
-        }
-        const deltaY = pendingTouchScrollDelta;
-        pendingTouchScrollDelta = 0;
-        if (deltaY) applyViewerScroll(deltaY);
-    }
-
-    function queueTouchScroll(deltaY) {
-        pendingTouchScrollDelta += deltaY;
-        if (touchScrollFrame !== null) return;
-        touchScrollFrame = global.requestAnimationFrame(() => {
-            touchScrollFrame = null;
-            const queuedDelta = pendingTouchScrollDelta;
-            pendingTouchScrollDelta = 0;
-            if (queuedDelta) applyViewerScroll(queuedDelta);
-        });
-    }
-
-    function cancelTouchMomentum() {
-        if (touchMomentumFrame !== null) {
-            global.cancelAnimationFrame(touchMomentumFrame);
-            touchMomentumFrame = null;
-        }
-        touchMomentumVelocity = 0;
-        touchMomentumLastTime = 0;
-    }
-
-    function cancelTouchScrollMotion() {
-        cancelTouchMomentum();
-        if (touchScrollFrame !== null) {
-            global.cancelAnimationFrame(touchScrollFrame);
-            touchScrollFrame = null;
-        }
-        pendingTouchScrollDelta = 0;
-        touchScrollGesture = null;
-    }
-
-    function startTouchMomentum(velocity) {
-        cancelTouchMomentum();
-        flushPendingTouchScroll();
-        touchMomentumVelocity = Math.max(
-            -TOUCH_MOMENTUM_MAX_VELOCITY,
-            Math.min(TOUCH_MOMENTUM_MAX_VELOCITY, velocity)
-        );
-        if (Math.abs(touchMomentumVelocity) < TOUCH_MOMENTUM_MIN_VELOCITY) {
-            touchMomentumVelocity = 0;
-            return;
-        }
-        touchMomentumLastTime = global.performance.now();
-        const step = now => {
-            const elapsed = Math.min(34, Math.max(1, now - touchMomentumLastTime));
-            touchMomentumLastTime = now;
-            const moved = applyViewerScroll(touchMomentumVelocity * elapsed);
-            touchMomentumVelocity *= Math.exp(-TOUCH_MOMENTUM_DECAY * elapsed);
-            if (
-                !moved
-                || Math.abs(touchMomentumVelocity) < TOUCH_MOMENTUM_MIN_VELOCITY
-            ) {
-                cancelTouchMomentum();
-                return;
-            }
-            touchMomentumFrame = global.requestAnimationFrame(step);
-        };
-        touchMomentumFrame = global.requestAnimationFrame(step);
-    }
-
-    function onAnnotationTouchStart(event) {
-        cancelTouchMomentum();
-        const surface = event.currentTarget;
-        const layer = surface.closest('.annotation-layer');
-        if (
-            !stylusConnectionEnabled
-            || !isInkInteraction(layer)
-            || currentStrokeGesture
-        ) {
-            touchScrollGesture = null;
-            return;
-        }
-        if (event.touches.length !== 1) {
-            cancelTouchScrollMotion();
-            return;
-        }
-        const touch = event.touches[0];
-        const point = touchPointInViewer(surface, touch);
-        const time = event.timeStamp;
-        event.preventDefault();
-        touchScrollGesture = {
-            surface,
-            identifier: touch.identifier,
-            lastY: point.y,
-            lastTime: time,
-            velocity: 0,
-            samples: [{ time, y: point.y }]
-        };
-    }
-
-    function onAnnotationTouchMove(event) {
-        const gesture = touchScrollGesture;
-        if (
-            !gesture
-            || gesture.surface !== event.currentTarget
-            || currentStrokeGesture
-            || event.touches.length !== 1
-        ) {
-            if (event.touches.length !== 1) cancelTouchScrollMotion();
-            return;
-        }
-        const touch = Array.from(event.touches)
-            .find(candidate => candidate.identifier === gesture.identifier);
-        if (!touch) {
-            touchScrollGesture = null;
-            return;
-        }
-        const point = touchPointInViewer(gesture.surface, touch);
-        const time = event.timeStamp;
-        const deltaY = gesture.lastY - point.y;
-        gesture.lastY = point.y;
-        gesture.lastTime = time;
-        gesture.samples.push({ time, y: point.y });
-        while (
-            gesture.samples.length > 2
-            && time - gesture.samples[0].time > TOUCH_VELOCITY_WINDOW_MS
-        ) {
-            gesture.samples.shift();
-        }
-        const firstSample = gesture.samples[0];
-        const sampleDuration = time - firstSample.time;
-        gesture.velocity = sampleDuration > 0
-            ? (firstSample.y - point.y) / sampleDuration
-            : 0;
-        event.preventDefault();
-        if (deltaY) queueTouchScroll(deltaY);
-    }
-
-    function finishAnnotationTouch(event) {
-        if (!stylusConnectionEnabled || currentStrokeGesture) {
-            cancelTouchScrollMotion();
-            return;
-        }
-        if (event.touches.length === 0) {
-            const gesture = touchScrollGesture;
-            touchScrollGesture = null;
-            if (!gesture) {
-                flushPendingTouchScroll();
-                return;
-            }
-            const idleTime = Math.max(0, event.timeStamp - gesture.lastTime);
-            const releaseFactor = Math.max(0, 1 - idleTime / TOUCH_RELEASE_IDLE_MS);
-            startTouchMomentum(gesture.velocity * releaseFactor);
-            return;
-        }
-        if (event.touches.length !== 1) {
-            cancelTouchScrollMotion();
-            return;
-        }
-        const touch = event.touches[0];
-        const surface = touch.target?.closest?.('.annotation-input-surface');
-        const layer = surface?.closest('.annotation-layer');
-        if (!surface || !isInkInteraction(layer)) {
-            touchScrollGesture = null;
-            return;
-        }
-        const point = touchPointInViewer(surface, touch);
-        touchScrollGesture = {
-            surface,
-            identifier: touch.identifier,
-            lastY: point.y,
-            lastTime: event.timeStamp,
-            velocity: 0,
-            samples: [{ time: event.timeStamp, y: point.y }]
-        };
-    }
-
-    function cancelAnnotationTouch() {
-        cancelTouchScrollMotion();
-    }
-
     function onAnnotationPointerDown(event) {
         if (event.button !== undefined && event.button !== 0) return;
-        if (event.pointerType === 'pen') cancelTouchScrollMotion();
+        
         if (consumeOpenAnnotationSettings(event)) return;
+        
+        // Disable annotation on touch to allow native finger scrolling
+        if (event.pointerType === 'touch') return;
+
         const surface = event.currentTarget;
         const layer = surface.closest('.annotation-layer');
         const pageIndex = Number(layer.dataset.pageIndex);
@@ -719,9 +506,7 @@
             return;
         }
         if (!['pen', 'highlighter', 'eraser'].includes(activeAnnotationTool)) return;
-        // With Stylus Connection enabled, touch contacts belong to viewer
-        // navigation. Recognized pens and desktop mouse input can annotate.
-        if (stylusConnectionEnabled && event.pointerType === 'touch') return;
+        
         event.preventDefault();
         surface.setPointerCapture?.(event.pointerId);
 
@@ -823,10 +608,6 @@
         surface.addEventListener('pointermove', onAnnotationPointerMove);
         surface.addEventListener('pointerup', finishAnnotationPointer);
         surface.addEventListener('pointercancel', finishAnnotationPointer);
-        surface.addEventListener('touchstart', onAnnotationTouchStart, { passive: false });
-        surface.addEventListener('touchmove', onAnnotationTouchMove, { passive: false });
-        surface.addEventListener('touchend', finishAnnotationTouch);
-        surface.addEventListener('touchcancel', cancelAnnotationTouch);
 
         const images = document.createElement('div');
         images.className = 'annotation-images';
@@ -857,7 +638,6 @@
 
     function setStylusConnectionEnabled(enabled) {
         stylusConnectionEnabled = Boolean(enabled);
-        cancelTouchScrollMotion();
         updateAnnotationInteraction();
     }
 
@@ -966,7 +746,6 @@
         if (isSetup) return;
         if (!ui) throw new Error('Configure Honest Annotator before setup.');
         isSetup = true;
-        ui.annotationToolbar.addEventListener('pointerdown', cancelTouchScrollMotion);
 
         ANNOTATION_COLORS.forEach(color => {
             const button = document.createElement('button');
