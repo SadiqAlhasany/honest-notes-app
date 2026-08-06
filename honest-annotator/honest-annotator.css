@@ -348,15 +348,7 @@
     inset: 0;
     z-index: 3;
     pointer-events: none;
-    touch-action: none;
     cursor: crosshair;
-}
-
-.annotation-layer[data-stylus-connection="true"] .annotation-input-surface {
-    /* Keep the browser from converting a stylus stroke into viewport panning.
-       Finger scrolling is routed explicitly by the annotator, while the
-       viewer's existing two-finger pinch handlers continue to handle zoom. */
-    touch-action: none;
 }
 
 .annotation-layer[data-interaction="pen"] .annotation-input-surface,
