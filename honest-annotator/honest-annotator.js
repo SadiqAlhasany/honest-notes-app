@@ -8,6 +8,7 @@
     const IMAGE_LONG_PRESS_MS = 1500;
     const IMAGE_LONG_PRESS_MOVE_TOLERANCE = 9;
     const STRAIGHT_LINE_SNAP_TANGENT = Math.tan(10 * Math.PI / 180);
+    const PEN_HOVER_CATCHER_CSS_SIZE = 48;
     const ANNOTATION_COLORS = [
         '#ef4444', '#f97316', '#facc15', '#22c55e', '#2dd4bf',
         '#38bdf8', '#3b82f6', '#8b5cf6', '#d946ef', '#111827'
@@ -37,6 +38,7 @@
     let selectedAnnotationImageId = null;
     let stylusConnectionEnabled = true;
     let activePenScrollLock = null;
+    let armedPenHoverCatcher = null;
 
     function mountUi() {
         if (document.getElementById('annotation-toolbar')) return;
@@ -510,8 +512,78 @@
         lock.viewer.scrollTop = lock.scrollTop;
     }
 
+    function isInkInteractionActive() {
+        return ['pen', 'highlighter', 'eraser'].includes(activeAnnotationTool);
+    }
+
+    function disarmPenHoverCatcher(catcher = armedPenHoverCatcher) {
+        if (!catcher) return;
+        catcher.classList.remove('is-armed');
+        catcher.style.transform = 'translate3d(-10000px, -10000px, 0)';
+        if (armedPenHoverCatcher === catcher) armedPenHoverCatcher = null;
+    }
+
+    function armPenHoverCatcher(surface, event) {
+        if (
+            event.pointerType !== 'pen'
+            || event.buttons !== 0
+            || !stylusConnectionEnabled
+            || !isInkInteractionActive()
+            || currentStrokeGesture
+        ) return;
+
+        const layer = surface.closest('.annotation-layer');
+        const catcher = surface.querySelector('.annotation-pen-hover-catcher');
+        if (!layer || !catcher) return;
+
+        const rect = layer.getBoundingClientRect();
+        const baseWidth = Number(layer.dataset.baseWidth);
+        const baseHeight = Number(layer.dataset.baseHeight);
+        if (!rect.width || !rect.height || !baseWidth || !baseHeight) return;
+
+        if (armedPenHoverCatcher && armedPenHoverCatcher !== catcher) {
+            disarmPenHoverCatcher();
+        }
+
+        // Keep the hit target a constant visual size even though each document
+        // page is rendered in base coordinates and scaled with CSS transforms.
+        const width = PEN_HOVER_CATCHER_CSS_SIZE * baseWidth / rect.width;
+        const height = PEN_HOVER_CATCHER_CSS_SIZE * baseHeight / rect.height;
+        const x = (event.clientX - rect.left) * baseWidth / rect.width;
+        const y = (event.clientY - rect.top) * baseHeight / rect.height;
+
+        catcher.style.width = `${width}px`;
+        catcher.style.height = `${height}px`;
+        catcher.style.transform = `translate3d(${x - width / 2}px, ${y - height / 2}px, 0)`;
+        catcher.classList.add('is-armed');
+        armedPenHoverCatcher = catcher;
+    }
+
+    function onAnnotationPenHover(event) {
+        armPenHoverCatcher(event.currentTarget, event);
+    }
+
+    function onAnnotationSurfacePointerLeave(event) {
+        if (event.pointerType !== 'pen' || currentStrokeGesture?.pointerId === event.pointerId) return;
+        const catcher = event.currentTarget.querySelector('.annotation-pen-hover-catcher');
+        if (catcher && armedPenHoverCatcher === catcher) disarmPenHoverCatcher(catcher);
+    }
+
     function onAnnotationPointerDown(event) {
         if (event.button !== undefined && event.button !== 0) return;
+        const startedOnHoverCatcher = event.currentTarget.classList.contains('annotation-pen-hover-catcher');
+        if (startedOnHoverCatcher) {
+            // The catcher is nested inside the normal surface; avoid starting a
+            // duplicate stroke when this pointerdown would otherwise bubble.
+            event.stopPropagation();
+            if (event.pointerType !== 'pen') {
+                // This contact cannot be retargeted for the current gesture, but
+                // disarming immediately keeps the catcher from affecting another
+                // finger contact after this one ends.
+                disarmPenHoverCatcher(event.currentTarget);
+                return;
+            }
+        }
         if (consumeOpenAnnotationSettings(event)) return;
         const surface = event.currentTarget;
         const layer = surface.closest('.annotation-layer');
@@ -528,6 +600,7 @@
         // Finger contacts always remain native viewer navigation. Ink tools only
         // take ownership of a confirmed stylus while Stylus Connection is on.
         if (!stylusConnectionEnabled || event.pointerType !== 'pen') return;
+        if (!startedOnHoverCatcher) disarmPenHoverCatcher();
         lockViewerForPenStroke();
         event.preventDefault();
         surface.setPointerCapture?.(event.pointerId);
@@ -592,7 +665,14 @@
 
     function finishAnnotationPointer(event) {
         if (!currentStrokeGesture || currentStrokeGesture.pointerId !== event.pointerId) return;
+        const gesture = currentStrokeGesture;
         currentStrokeGesture = null;
+        if (gesture.surface.hasPointerCapture?.(event.pointerId)) {
+            gesture.surface.releasePointerCapture?.(event.pointerId);
+        }
+        if (event.type === 'pointercancel' && gesture.surface.classList.contains('annotation-pen-hover-catcher')) {
+            disarmPenHoverCatcher(gesture.surface);
+        }
         unlockViewerAfterPenStroke();
         scheduleAnnotationSave();
     }
@@ -629,8 +709,21 @@
         surface.className = 'annotation-input-surface';
         surface.addEventListener('pointerdown', onAnnotationPointerDown);
         surface.addEventListener('pointermove', onAnnotationPointerMove);
+        surface.addEventListener('pointerover', onAnnotationPenHover);
+        surface.addEventListener('pointermove', onAnnotationPenHover);
+        surface.addEventListener('pointerrawupdate', onAnnotationPenHover);
+        surface.addEventListener('pointerleave', onAnnotationSurfacePointerLeave);
         surface.addEventListener('pointerup', finishAnnotationPointer);
         surface.addEventListener('pointercancel', finishAnnotationPointer);
+
+        const penHoverCatcher = document.createElement('div');
+        penHoverCatcher.className = 'annotation-pen-hover-catcher';
+        penHoverCatcher.setAttribute('aria-hidden', 'true');
+        penHoverCatcher.addEventListener('pointerdown', onAnnotationPointerDown);
+        penHoverCatcher.addEventListener('pointermove', onAnnotationPointerMove);
+        penHoverCatcher.addEventListener('pointerup', finishAnnotationPointer);
+        penHoverCatcher.addEventListener('pointercancel', finishAnnotationPointer);
+        surface.appendChild(penHoverCatcher);
 
         const images = document.createElement('div');
         images.className = 'annotation-images';
@@ -642,6 +735,7 @@
 
     function updateAnnotationInteraction() {
         const interaction = currentAnnotationInteraction();
+        if (!stylusConnectionEnabled || !isInkInteractionActive()) disarmPenHoverCatcher();
         ui.pdfContainer.querySelectorAll('.annotation-layer').forEach(layer => {
             layer.dataset.interaction = interaction;
             layer.dataset.stylusConnection = String(stylusConnectionEnabled);
@@ -663,6 +757,7 @@
         stylusConnectionEnabled = Boolean(enabled);
         if (!stylusConnectionEnabled) {
             currentStrokeGesture = null;
+            disarmPenHoverCatcher();
             unlockViewerAfterPenStroke();
         }
         updateAnnotationInteraction();
@@ -873,6 +968,10 @@
                 closeAnnotationSettings();
             }
         });
+        window.addEventListener('blur', () => disarmPenHoverCatcher());
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) disarmPenHoverCatcher();
+        });
     }
 
     function enterViewer() {
@@ -881,6 +980,7 @@
 
     function leaveViewer() {
         currentStrokeGesture = null;
+        disarmPenHoverCatcher();
         unlockViewerAfterPenStroke();
         ui.annotationToolbar.classList.add('hidden');
         closeAnnotationSettings();
@@ -901,6 +1001,7 @@
         selectedAnnotationImageId = null;
         pendingAnnotationImage = null;
         currentStrokeGesture = null;
+        disarmPenHoverCatcher();
         unlockViewerAfterPenStroke();
     }
 
