@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'honest-academy-';
-const CACHE_NAME = `${CACHE_PREFIX}v8`;
+const CACHE_NAME = `${CACHE_PREFIX}v7`;
 
 const APP_FILES = [
     './',
