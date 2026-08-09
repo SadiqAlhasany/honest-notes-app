@@ -8,7 +8,6 @@
     const IMAGE_LONG_PRESS_MS = 1500;
     const IMAGE_LONG_PRESS_MOVE_TOLERANCE = 9;
     const STRAIGHT_LINE_SNAP_TANGENT = Math.tan(10 * Math.PI / 180);
-    const DRAWING_INTERVAL_MS = 16;
     const ANNOTATION_COLORS = [
         '#ef4444', '#f97316', '#facc15', '#22c55e', '#2dd4bf',
         '#38bdf8', '#3b82f6', '#8b5cf6', '#d946ef', '#111827'
@@ -37,6 +36,7 @@
     let pendingAnnotationImage = null;
     let selectedAnnotationImageId = null;
     let stylusConnectionEnabled = true;
+    let activePenScrollLock = null;
 
     function mountUi() {
         if (document.getElementById('annotation-toolbar')) return;
@@ -482,18 +482,37 @@
         showAnnotationToast('Image placed · long-press it to edit');
     }
 
-    function isInkInteraction(layer) {
-        return ['pen', 'highlighter', 'eraser'].includes(layer?.dataset.interaction);
+    function viewerScrollContainer() {
+        return ui.pdfContainer.closest('#screen-viewer');
+    }
+
+    function lockViewerForPenStroke() {
+        const viewer = viewerScrollContainer();
+        if (!viewer || activePenScrollLock) return;
+        activePenScrollLock = {
+            viewer,
+            scrollTop: viewer.scrollTop,
+            overflowY: viewer.style.getPropertyValue('overflow-y'),
+            overflowYPriority: viewer.style.getPropertyPriority('overflow-y')
+        };
+        viewer.style.setProperty('overflow-y', 'hidden');
+    }
+
+    function unlockViewerAfterPenStroke() {
+        const lock = activePenScrollLock;
+        activePenScrollLock = null;
+        if (!lock) return;
+        if (lock.overflowY) {
+            lock.viewer.style.setProperty('overflow-y', lock.overflowY, lock.overflowYPriority);
+        } else {
+            lock.viewer.style.removeProperty('overflow-y');
+        }
+        lock.viewer.scrollTop = lock.scrollTop;
     }
 
     function onAnnotationPointerDown(event) {
         if (event.button !== undefined && event.button !== 0) return;
-        
         if (consumeOpenAnnotationSettings(event)) return;
-        
-        // Disable annotation on touch to allow native finger scrolling
-        if (event.pointerType === 'touch') return;
-
         const surface = event.currentTarget;
         const layer = surface.closest('.annotation-layer');
         const pageIndex = Number(layer.dataset.pageIndex);
@@ -506,7 +525,10 @@
             return;
         }
         if (!['pen', 'highlighter', 'eraser'].includes(activeAnnotationTool)) return;
-        
+        // Finger contacts always remain native viewer navigation. Ink tools only
+        // take ownership of a confirmed stylus while Stylus Connection is on.
+        if (!stylusConnectionEnabled || event.pointerType !== 'pen') return;
+        lockViewerForPenStroke();
         event.preventDefault();
         surface.setPointerCapture?.(event.pointerId);
 
@@ -571,6 +593,7 @@
     function finishAnnotationPointer(event) {
         if (!currentStrokeGesture || currentStrokeGesture.pointerId !== event.pointerId) return;
         currentStrokeGesture = null;
+        unlockViewerAfterPenStroke();
         scheduleAnnotationSave();
     }
 
@@ -638,6 +661,10 @@
 
     function setStylusConnectionEnabled(enabled) {
         stylusConnectionEnabled = Boolean(enabled);
+        if (!stylusConnectionEnabled) {
+            currentStrokeGesture = null;
+            unlockViewerAfterPenStroke();
+        }
         updateAnnotationInteraction();
     }
 
@@ -853,7 +880,8 @@
     }
 
     function leaveViewer() {
-        cancelTouchScrollMotion();
+        currentStrokeGesture = null;
+        unlockViewerAfterPenStroke();
         ui.annotationToolbar.classList.add('hidden');
         closeAnnotationSettings();
         setAnnotationTrayOpen(false);
@@ -873,7 +901,7 @@
         selectedAnnotationImageId = null;
         pendingAnnotationImage = null;
         currentStrokeGesture = null;
-        cancelTouchScrollMotion();
+        unlockViewerAfterPenStroke();
     }
 
     global.HonestAnnotator = Object.freeze({
